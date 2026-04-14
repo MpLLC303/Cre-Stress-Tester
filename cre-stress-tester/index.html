@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>CRE Deal Memo Stress Tester</title>
+<meta name="description" content="First-pass acquisitions-associate critique for commercial real estate deal memos. Grounded in a curated six-file knowledge base and an explicit anti-hallucination rule set." />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Syne:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#07060A;
+    --panel:#0E0C14;
+    --panel-2:#13111B;
+    --ink:#EDE6D3;
+    --ink-dim:#9D9684;
+    --rule:#2A2533;
+    --gold-1:#D4B574;
+    --gold-2:#C9A86A;
+    --gold-3:#8C7A4F;
+    --ok:#86C995;
+    --warn:#E3B765;
+    --err:#D77878;
+    --blue:#6BA7C9;
+    --purple:#A98EC9;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  body{background:radial-gradient(ellipse at top,#0F0C18 0%,#07060A 60%) no-repeat;min-height:100vh}
+  .wrap{max-width:960px;margin:0 auto;padding:48px 28px 120px}
+
+  /* MASTHEAD */
+  .masthead{border-bottom:1px solid var(--rule);padding-bottom:32px;margin-bottom:40px}
+  .kicker{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:14px}
+  .title{font-family:'Syne',sans-serif;font-weight:700;font-size:46px;line-height:1.05;letter-spacing:-0.02em;margin:0 0 12px;background:linear-gradient(135deg,#F4E5BC 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .subtitle{font-style:italic;font-size:20px;color:var(--ink-dim);margin:0 0 6px;font-weight:400}
+  .meta{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;color:var(--gold-3);text-transform:uppercase;margin-top:14px}
+
+  /* INTAKE CARD */
+  .card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:26px;margin-bottom:22px}
+  .card h2{font-family:'Syne',sans-serif;font-weight:600;font-size:18px;letter-spacing:-0.01em;margin:0 0 4px;color:var(--gold-1);text-transform:uppercase;letter-spacing:0.15em;font-size:11px}
+  .card .hint{font-size:14px;color:var(--ink-dim);font-style:italic;margin:0 0 18px}
+
+  /* INTAKE GRID */
+  .intake-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px}
+  .field label{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.18em;color:var(--gold-2);text-transform:uppercase;margin-bottom:6px}
+  .field input, .field select{width:100%;background:var(--panel-2);border:1px solid var(--rule);border-radius:2px;padding:10px 12px;color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:16px;outline:none;transition:border-color 0.15s}
+  .field input:focus, .field select:focus{border-color:var(--gold-2)}
+  .field select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%23C9A86A' d='M6 8L0 0h12z'/></svg>");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
+
+  /* MEMO INPUT */
+  .memo-card textarea{width:100%;min-height:240px;background:var(--panel-2);border:1px solid var(--rule);border-radius:2px;padding:14px 16px;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;outline:none;resize:vertical;transition:border-color 0.15s}
+  .memo-card textarea:focus{border-color:var(--gold-2)}
+  .memo-footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:12px}
+  .word-count{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.1em;color:var(--ink-dim);text-transform:uppercase}
+  .word-count.warn{color:var(--warn)}
+  .word-count.err{color:var(--err)}
+
+  /* BUTTON */
+  .submit-btn{background:linear-gradient(135deg,var(--gold-1),var(--gold-3));border:none;color:#07060A;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.15em;text-transform:uppercase;padding:14px 32px;border-radius:2px;cursor:pointer;transition:all 0.15s;box-shadow:0 2px 12px rgba(201,168,106,0.25)}
+  .submit-btn:hover:not(:disabled){box-shadow:0 4px 20px rgba(201,168,106,0.45);transform:translateY(-1px)}
+  .submit-btn:disabled{opacity:0.4;cursor:not-allowed}
+
+  /* LOADING */
+  .loader{display:none;text-align:center;padding:40px 0}
+  .loader.active{display:block}
+  .loader-spinner{display:inline-block;width:32px;height:32px;border:2px solid var(--rule);border-top-color:var(--gold-1);border-radius:50%;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .loader-msg{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.2em;color:var(--gold-2);text-transform:uppercase;margin-top:16px}
+
+  /* RESULTS */
+  .results{display:none;margin-top:40px}
+  .results.active{display:block}
+  .result-section{background:var(--panel);border:1px solid var(--rule);border-radius:3px;margin-bottom:18px;overflow:hidden;position:relative}
+  .result-header{padding:14px 20px;border-bottom:1px solid var(--rule);background:linear-gradient(180deg,rgba(201,168,106,0.06),transparent);display:flex;justify-content:space-between;align-items:center}
+  .result-id{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.25em;color:var(--gold-2);text-transform:uppercase}
+  .result-body{padding:20px 24px;font-size:17px;line-height:1.65}
+  .result-body p{margin:0 0 12px}
+  .result-body p:last-child{margin-bottom:0}
+  .result-body strong{color:var(--gold-1);font-weight:600}
+  .result-body ol, .result-body ul{padding-left:20px;margin:10px 0}
+  .result-body li{margin-bottom:8px}
+
+  /* RED FLAG CARDS inside red_flags_identified */
+  .flag-card{background:rgba(215,120,120,0.04);border-left:3px solid var(--err);padding:12px 16px;margin:12px 0;border-radius:2px}
+  .flag-card .flag-name{font-family:'Syne',sans-serif;font-weight:600;color:var(--err);font-size:15px;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em}
+
+  /* DISCLAIMER */
+  .disclaimer{background:rgba(107,167,201,0.04);border:1px solid rgba(107,167,201,0.25);border-left:3px solid var(--blue);padding:14px 20px;margin-top:24px;border-radius:2px;font-size:14px;color:var(--ink-dim);font-style:italic}
+
+  /* ERROR */
+  .error-panel{display:none;background:rgba(215,120,120,0.08);border:1px solid var(--err);border-left:3px solid var(--err);padding:16px 20px;border-radius:2px;margin-top:20px;color:var(--err);font-family:'JetBrains Mono',monospace;font-size:13px}
+  .error-panel.active{display:block}
+
+  /* COPY BUTTON */
+  .copy-btn{background:rgba(201,168,106,0.15);border:1px solid var(--gold-3);color:var(--gold-1);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.15em;text-transform:uppercase;padding:5px 10px;border-radius:2px;cursor:pointer;transition:all 0.15s}
+  .copy-btn:hover{background:rgba(201,168,106,0.28);border-color:var(--gold-1)}
+  .copy-btn.copied{background:rgba(134,201,149,0.15);border-color:var(--ok);color:var(--ok)}
+
+  /* FOOTER */
+  footer{margin-top:60px;padding-top:28px;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-dim);font-family:'JetBrains Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;text-align:center}
+  footer a{color:var(--gold-2);text-decoration:none}
+  footer a:hover{color:var(--gold-1)}
+
+  /* Responsive */
+  @media (max-width: 640px){
+    .wrap{padding:32px 18px 80px}
+    .title{font-size:34px}
+    .subtitle{font-size:17px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="masthead">
+  <div class="kicker">CRE Acquisitions Critique · Ground-Truth Tool</div>
+  <h1 class="title">Deal Memo Stress Tester</h1>
+  <p class="subtitle">The first-pass critique an acquisitions associate would actually do — in about fifteen seconds.</p>
+  <div class="meta">Claude Sonnet 4.6 · Six-file knowledge base · Anti-hallucination ruleset</div>
+</header>
+
+<!-- INTAKE -->
+<div class="card">
+  <h2>Deal Context · All Optional</h2>
+  <p class="hint">Skip any field you don't know — the analysis will infer from the memo and flag what it can't determine.</p>
+
+  <div class="intake-grid">
+    <div class="field">
+      <label>Asset Class</label>
+      <select id="asset-class">
+        <option value="">—</option>
+        <option>Multifamily</option>
+        <option>Office</option>
+        <option>Industrial</option>
+        <option>Retail</option>
+        <option>Hospitality</option>
+        <option>Mixed-Use</option>
+        <option>Other</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Market / Submarket</label>
+      <input id="market" type="text" placeholder="e.g. Phoenix West Valley" />
+    </div>
+    <div class="field">
+      <label>Strategy</label>
+      <select id="strategy">
+        <option value="">—</option>
+        <option>Core</option>
+        <option>Core-Plus</option>
+        <option>Value-Add</option>
+        <option>Opportunistic</option>
+        <option>Development</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Hold (yrs)</label>
+      <input id="hold" type="number" min="1" max="30" placeholder="5" />
+    </div>
+    <div class="field">
+      <label>Target IRR (%)</label>
+      <input id="irr" type="number" min="0" max="50" step="0.1" placeholder="15" />
+    </div>
+  </div>
+</div>
+
+<!-- MEMO INPUT -->
+<div class="card memo-card">
+  <h2>Paste Deal Memo</h2>
+  <p class="hint">Deal memo body, pro forma summary, or key underwriting assumptions. The analysis works best on text between 150 and 2,000 words.</p>
+  <textarea id="memo" placeholder="Deal Snapshot&#10;Sponsor Thesis&#10;Key Assumptions (rent growth, exit cap, opex growth, debt terms, hold period, target IRR)&#10;Capital Stack&#10;Comparable Sales"></textarea>
+  <div class="memo-footer">
+    <span class="word-count" id="word-count">0 words</span>
+    <button class="submit-btn" id="submit-btn" disabled>Stress Test This Memo</button>
+  </div>
+</div>
+
+<!-- ERROR -->
+<div class="error-panel" id="error-panel"></div>
+
+<!-- LOADING -->
+<div class="loader" id="loader">
+  <div class="loader-spinner"></div>
+  <div class="loader-msg" id="loader-msg">Pulling the red flag catalog</div>
+</div>
+
+<!-- RESULTS -->
+<div class="results" id="results"></div>
+
+<footer>
+  <p>BCOR 2205 · Built with Claude Sonnet 4.6 · <a href="https://github.com" id="src-link">Source</a></p>
+</footer>
+
+</div>
+
+<script>
+  const memo = document.getElementById('memo');
+  const wordCount = document.getElementById('word-count');
+  const submitBtn = document.getElementById('submit-btn');
+  const loader = document.getElementById('loader');
+  const loaderMsg = document.getElementById('loader-msg');
+  const results = document.getElementById('results');
+  const errorPanel = document.getElementById('error-panel');
+
+  const MAX_WORDS = 5000;
+  const MIN_WORDS = 50;
+
+  // Word counter
+  function updateCount() {
+    const words = memo.value.trim().split(/\s+/).filter(Boolean).length;
+    wordCount.textContent = `${words.toLocaleString()} words`;
+    wordCount.classList.remove('warn','err');
+    if (words > MAX_WORDS) { wordCount.classList.add('err'); wordCount.textContent += ' · over limit'; }
+    else if (words > 3500) { wordCount.classList.add('warn'); }
+    submitBtn.disabled = words < MIN_WORDS || words > MAX_WORDS;
+  }
+  memo.addEventListener('input', updateCount);
+
+  // Loading messages — rotate while analysis runs
+  const LOADER_MESSAGES = [
+    'Pulling the red flag catalog',
+    'Cross-checking the asset class ranges',
+    'Running the fragility framework',
+    'Auditing the cap rate assumptions',
+    'Scanning the capital stack',
+    'Drafting the verification checklist',
+    'Sanity-checking against the cycle reference'
+  ];
+
+  function cycleLoader() {
+    let i = 0;
+    return setInterval(() => {
+      i = (i + 1) % LOADER_MESSAGES.length;
+      loaderMsg.textContent = LOADER_MESSAGES[i];
+    }, 2400);
+  }
+
+  // Parse XML-tagged response into sections
+  function parseResponse(text) {
+    const sections = {};
+    const tagPatterns = {
+      deal_snapshot: /<deal_snapshot>([\s\S]*?)<\/deal_snapshot>/i,
+      red_flags_identified: /<red_flags_identified>([\s\S]*?)<\/red_flags_identified>/i,
+      fragility_assessment: /<fragility_assessment>([\s\S]*?)<\/fragility_assessment>/i,
+      verification_checklist: /<verification_checklist>([\s\S]*?)<\/verification_checklist>/i,
+      what_i_could_not_assess: /<what_i_could_not_assess>([\s\S]*?)<\/what_i_could_not_assess>/i,
+      disclaimer: /<disclaimer>([\s\S]*?)<\/disclaimer>/i,
+    };
+    for (const [key, pattern] of Object.entries(tagPatterns)) {
+      const match = text.match(pattern);
+      if (match) sections[key] = match[1].trim();
+    }
+    // If no XML found, fall back to showing raw text in a single section
+    if (Object.keys(sections).length === 0) {
+      sections.raw = text;
+    }
+    return sections;
+  }
+
+  // Very simple markdown → HTML (bold, bullets, paragraphs)
+  function md(text) {
+    if (!text) return '';
+    let html = text
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+    // Convert bullet lists
+    const lines = html.split('\n');
+    const out = [];
+    let inList = false;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (/^[-*]\s+/.test(trimmed)) {
+        if (!inList) { out.push('<ul>'); inList = true; }
+        out.push('<li>' + trimmed.replace(/^[-*]\s+/, '') + '</li>');
+      } else if (/^\d+\.\s+/.test(trimmed)) {
+        if (!inList) { out.push('<ol>'); inList = true; }
+        out.push('<li>' + trimmed.replace(/^\d+\.\s+/, '') + '</li>');
+      } else {
+        if (inList) { out.push(inList === 'ol' ? '</ol>' : '</ul>'); inList = false; }
+        if (trimmed) out.push('<p>' + trimmed + '</p>');
+      }
+    }
+    if (inList) out.push('</ul>');
+    return out.join('');
+  }
+
+  // Render red flags as cards (special case)
+  function renderRedFlags(text) {
+    if (!text) return '';
+    // Split on numbered items or ** ** bold names
+    const items = text.split(/(?=\n?\s*(?:\d+\.|[-*])\s+\*\*)/).filter(s => s.trim());
+    if (items.length === 0) return md(text);
+    return items.map(item => {
+      const cleaned = item.replace(/^[\s\d.\-*]+/, '').trim();
+      const nameMatch = cleaned.match(/^\*\*(.+?):?\*\*\s*(.*)/s);
+      if (nameMatch) {
+        return `<div class="flag-card"><div class="flag-name">${nameMatch[1].replace(/:$/,'')}</div>${md(nameMatch[2])}</div>`;
+      }
+      return `<div class="flag-card">${md(cleaned)}</div>`;
+    }).join('');
+  }
+
+  // Render all results
+  function render(sections) {
+    const sectionDefs = [
+      { key: 'deal_snapshot', id: '§01', title: 'Deal Snapshot', renderer: md },
+      { key: 'red_flags_identified', id: '§02', title: 'Red Flags Identified', renderer: renderRedFlags },
+      { key: 'fragility_assessment', id: '§03', title: 'Fragility Assessment', renderer: md },
+      { key: 'verification_checklist', id: '§04', title: 'Verification Checklist', renderer: md },
+      { key: 'what_i_could_not_assess', id: '§05', title: 'What I Could Not Assess', renderer: md },
+    ];
+    let html = '';
+    for (const def of sectionDefs) {
+      if (sections[def.key]) {
+        html += `<div class="result-section">
+          <div class="result-header">
+            <span class="result-id">${def.id} · ${def.title}</span>
+            <button class="copy-btn" data-text="${encodeURIComponent(sections[def.key])}">Copy</button>
+          </div>
+          <div class="result-body">${def.renderer(sections[def.key])}</div>
+        </div>`;
+      }
+    }
+    if (sections.disclaimer) {
+      html += `<div class="disclaimer">${sections.disclaimer}</div>`;
+    }
+    if (sections.raw) {
+      html += `<div class="result-section"><div class="result-body">${md(sections.raw)}</div></div>`;
+    }
+    results.innerHTML = html;
+    results.classList.add('active');
+
+    // Wire copy buttons
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const text = decodeURIComponent(btn.dataset.text);
+        navigator.clipboard.writeText(text).then(() => {
+          btn.textContent = 'Copied';
+          btn.classList.add('copied');
+          setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+        });
+      });
+    });
+  }
+
+  // Submit handler
+  submitBtn.addEventListener('click', async () => {
+    errorPanel.classList.remove('active');
+    results.classList.remove('active');
+    results.innerHTML = '';
+
+    const payload = {
+      memo: memo.value.trim(),
+      intake: {
+        assetClass: document.getElementById('asset-class').value,
+        market: document.getElementById('market').value,
+        strategy: document.getElementById('strategy').value,
+        hold: document.getElementById('hold').value,
+        targetIrr: document.getElementById('irr').value,
+      }
+    };
+
+    submitBtn.disabled = true;
+    loader.classList.add('active');
+    loaderMsg.textContent = LOADER_MESSAGES[0];
+    const loaderInterval = cycleLoader();
+
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      clearInterval(loaderInterval);
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(errData.error || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      loader.classList.remove('active');
+
+      if (data.error) throw new Error(data.error);
+
+      const sections = parseResponse(data.analysis || '');
+      render(sections);
+
+      // Scroll to results
+      results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      clearInterval(loaderInterval);
+      loader.classList.remove('active');
+      errorPanel.textContent = 'Error · ' + err.message;
+      errorPanel.classList.add('active');
+    } finally {
+      submitBtn.disabled = false;
+      updateCount();
+    }
+  });
+
+  updateCount();
+</script>
+</body>
+</html>

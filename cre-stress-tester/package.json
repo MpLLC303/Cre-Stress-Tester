@@ -1,0 +1,17 @@
+{
+  "name": "cre-stress-tester",
+  "version": "1.0.0",
+  "description": "CRE Deal Memo Stress Tester — a first-pass acquisitions-associate critique tool for commercial real estate deal memos, powered by Claude Sonnet 4.6 with a curated six-file knowledge base.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.30.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
