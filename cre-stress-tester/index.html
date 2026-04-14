@@ -1,0 +1,331 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Deal Memo Stress Tester · Home</title>
+<meta name="description" content="Paste a real estate pitch document. Get a structured critique in about fifteen seconds. Built on public research, grounded in clear rules, no invented market data." />
+<meta property="og:title" content="Deal Memo Stress Tester" />
+<meta property="og:description" content="A second set of eyes on the pitch documents real estate investors write — in about fifteen seconds." />
+<meta property="og:type" content="website" />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Syne:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     DESIGN TOKENS — shared across all pages
+  ============================================================ */
+  :root{
+    --bg:#07060A; --panel:#0E0C14; --panel-2:#13111B;
+    --ink:#F4F1E8; --ink-strong:#FFFCF4; --ink-dim:#B8B1A0;
+    --rule:#2A2533;
+    --gold-1:#D4B574; --gold-2:#C9A86A; --gold-3:#8C7A4F;
+    --ok:#86C995; --err:#E89090; --blue:#85BDDE;
+    --nav-h:68px;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:19px;font-weight:500;line-height:1.65;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+  body{background:radial-gradient(ellipse at top,#0F0C18 0%,#07060A 60%) no-repeat;min-height:100vh}
+  a{color:var(--gold-1);text-decoration:none;transition:color 0.15s}
+  a:hover{color:var(--gold-2)}
+
+  /* ============================================================
+     SHARED NAV
+  ============================================================ */
+  .site-nav{position:sticky;top:0;z-index:50;background:rgba(7,6,10,0.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule);height:var(--nav-h);display:flex;align-items:center}
+  .site-nav-inner{max-width:1100px;width:100%;margin:0 auto;padding:0 28px;display:flex;align-items:center;justify-content:space-between}
+  .site-nav-brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+  .site-nav-brand .mp-logo{width:34px;height:34px;display:block;flex-shrink:0}
+  .site-nav-brand .brand-name{font-family:'Syne',sans-serif;font-weight:700;font-size:15px;letter-spacing:0.02em;color:var(--ink-strong)}
+  .site-nav-brand:hover .brand-name{color:var(--gold-1)}
+  .site-nav-links{display:flex;gap:4px;align-items:center}
+  .site-nav-links a{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-dim);padding:10px 14px;border-radius:2px;transition:all 0.15s;position:relative}
+  .site-nav-links a:hover{color:var(--gold-1)}
+  .site-nav-links a[aria-current="page"]{color:var(--gold-1)}
+  .site-nav-links a[aria-current="page"]::after{content:"";position:absolute;bottom:3px;left:14px;right:14px;height:2px;background:linear-gradient(90deg,var(--gold-1),var(--gold-3))}
+  .site-nav-links a:focus-visible{outline:2px solid var(--gold-1);outline-offset:2px}
+  .nav-toggle{display:none;background:transparent;border:1px solid var(--rule);color:var(--gold-1);width:44px;height:44px;border-radius:2px;cursor:pointer;font-size:18px;align-items:center;justify-content:center}
+  .nav-toggle:hover{border-color:var(--gold-1)}
+
+  @media (max-width: 840px){
+    .site-nav-links{display:none;position:absolute;top:var(--nav-h);left:0;right:0;flex-direction:column;background:rgba(7,6,10,0.98);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule);padding:12px;gap:2px}
+    .site-nav-links a{padding:14px 16px;display:block}
+    .site-nav-links a[aria-current="page"]::after{left:16px;right:auto;width:28px}
+    .nav-toggle{display:inline-flex}
+    #nav-toggle-cb:checked ~ .site-nav-links{display:flex}
+  }
+
+  /* Hide checkbox */
+  #nav-toggle-cb{display:none}
+
+  /* ============================================================
+     MAIN WRAP
+  ============================================================ */
+  main{max-width:960px;margin:0 auto;padding:48px 28px 80px}
+
+  /* ============================================================
+     HERO
+  ============================================================ */
+  .hero{text-align:left;padding-bottom:52px;border-bottom:1px solid var(--rule);margin-bottom:56px}
+  .hero-logo{width:160px;height:160px;margin-bottom:22px;display:block}
+  .hero-kicker{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.32em;color:var(--gold-2);text-transform:uppercase;margin-bottom:16px}
+  .hero-title{font-family:'Syne',sans-serif;font-weight:700;font-size:64px;line-height:1.02;letter-spacing:-0.025em;margin:0 0 20px;background:linear-gradient(135deg,#FFF5D5 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero-sub{font-style:italic;font-size:26px;color:var(--ink-strong);margin:0 0 32px;font-weight:500;max-width:42ch;line-height:1.4}
+  .hero-ctas{display:flex;gap:14px;flex-wrap:wrap}
+  .cta{display:inline-block;padding:16px 32px;border-radius:2px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;transition:all 0.15s;cursor:pointer;border:none}
+  .cta-primary{background:linear-gradient(135deg,var(--gold-1),var(--gold-3));color:#07060A;box-shadow:0 2px 12px rgba(201,168,106,0.25)}
+  .cta-primary:hover{box-shadow:0 4px 20px rgba(201,168,106,0.45);transform:translateY(-1px);color:#07060A}
+  .cta-secondary{background:transparent;border:1px solid var(--gold-2);color:var(--gold-1)}
+  .cta-secondary:hover{background:rgba(201,168,106,0.08);border-color:var(--gold-1)}
+
+  /* ============================================================
+     SECTIONS
+  ============================================================ */
+  .section{margin:60px 0}
+  .section-kicker{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:14px}
+  .section-title{font-family:'Syne',sans-serif;font-weight:700;font-size:40px;line-height:1.1;letter-spacing:-0.015em;margin:0 0 24px;color:var(--ink-strong)}
+  .section-title em{background:linear-gradient(135deg,#FFF5D5 0%,#C9A86A 100%);-webkit-background-clip:text;background-clip:text;color:transparent;font-style:italic;font-weight:700}
+  .lede{font-size:21px;line-height:1.6;color:var(--ink);max-width:68ch;margin-bottom:22px;font-weight:500}
+  .lede em{color:var(--gold-1);font-style:italic;font-weight:500}
+
+  /* Feature cards */
+  .features{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin:32px 0}
+  .feature{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:24px 26px;position:relative;overflow:hidden}
+  .feature::before{content:"";position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--gold-1),transparent)}
+  .feature-num{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.25em;color:var(--gold-2);text-transform:uppercase;margin-bottom:12px}
+  .feature-title{font-family:'Syne',sans-serif;font-weight:600;font-size:19px;color:var(--gold-1);margin:0 0 10px;letter-spacing:-0.005em}
+  .feature-body{font-size:17px;color:var(--ink);line-height:1.55;font-weight:500}
+
+  /* Audience */
+  .audience{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:28px 0}
+  .audience-card{background:var(--panel-2);border:1px solid var(--rule);border-radius:3px;padding:24px 26px}
+  .audience-label{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.22em;color:var(--gold-2);text-transform:uppercase;margin-bottom:12px}
+  .audience-body{font-size:17px;color:var(--ink);line-height:1.55;margin:0;font-weight:500}
+
+  /* Bottom CTA block */
+  .cta-block{background:linear-gradient(135deg,rgba(212,181,116,0.08),rgba(140,122,79,0.04));border:1px solid rgba(201,168,106,0.3);border-radius:3px;padding:44px 40px;margin:72px 0 40px;text-align:center}
+  .cta-block h2{font-family:'Syne',sans-serif;font-weight:700;font-size:36px;line-height:1.1;margin:0 0 16px;color:var(--ink-strong)}
+  .cta-block p{font-size:19px;color:var(--ink);margin:0 0 28px;font-style:italic;font-weight:500;max-width:50ch;margin-left:auto;margin-right:auto;line-height:1.5}
+
+  .limitation-note{background:rgba(133,189,222,0.05);border:1px solid rgba(133,189,222,0.25);border-left:3px solid var(--blue);padding:18px 24px;border-radius:2px;margin:30px 0;font-size:17px;color:var(--ink);line-height:1.6;font-weight:500}
+  .limitation-note strong{color:var(--blue);font-family:'Syne',sans-serif;font-weight:700;letter-spacing:0.05em;font-size:12px;text-transform:uppercase;display:block;margin-bottom:6px;letter-spacing:0.15em}
+
+  /* ============================================================
+     SHARED FOOTER
+  ============================================================ */
+  .site-footer{margin-top:100px;padding:32px 28px;border-top:1px solid var(--rule);text-align:center}
+  .site-footer-inner{max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+  .footer-brand{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:0.1em;color:var(--ink-dim);text-transform:uppercase}
+  .footer-brand .mp-logo{width:22px;height:22px}
+  .footer-links{display:flex;gap:18px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase}
+  .footer-links a{color:var(--ink-dim)}
+  .footer-links a:hover{color:var(--gold-1)}
+  .footer-meta{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.15em;color:var(--ink-dim);text-transform:uppercase}
+  .footer-legal{max-width:960px;margin:20px auto 0;font-size:14px;color:var(--ink-dim);font-style:italic;line-height:1.5;padding:0 28px}
+
+  /* ============================================================
+     MOBILE
+  ============================================================ */
+  @media (max-width: 720px){
+    html,body{font-size:18px}
+    main{padding:36px 20px 60px}
+    .hero{padding-bottom:42px;margin-bottom:44px}
+    .hero-logo{width:120px;height:120px;margin-bottom:18px}
+    .hero-title{font-size:44px;line-height:1.05}
+    .hero-sub{font-size:21px}
+    .hero-ctas{flex-direction:column;width:100%}
+    .cta{text-align:center;width:100%;padding:16px 30px}
+    .section{margin:48px 0}
+    .section-title{font-size:30px}
+    .lede{font-size:19px}
+    .cta-block{padding:36px 24px;margin:52px 0 30px}
+    .cta-block h2{font-size:28px}
+    .cta-block p{font-size:17px}
+    .site-footer-inner{flex-direction:column;text-align:center}
+  }
+  @media (max-width: 420px){
+    .hero-title{font-size:38px}
+    .section-title{font-size:26px}
+    .cta-block h2{font-size:24px}
+  }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     NAV
+============================================================ -->
+<header class="site-nav">
+  <input type="checkbox" id="nav-toggle-cb" />
+  <div class="site-nav-inner">
+    <a href="/" class="site-nav-brand" aria-label="Home">
+      <svg class="mp-logo" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="mp-nav-g-h" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#D4B574"/>
+            <stop offset="100%" stop-color="#8C7A4F"/>
+          </linearGradient>
+        </defs>
+        <path fill="url(#mp-nav-g-h)" d="M 4 32 L 4 8 L 7 8 L 13.5 25 L 20 8 L 23 8 L 23 32 L 20.5 32 L 20.5 13 L 14.3 29 L 12.7 29 L 6.5 13 L 6.5 32 Z"/>
+        <path fill="url(#mp-nav-g-h)" d="M 3 31.5 L 8 31.5 L 8 32.8 L 3 32.8 Z"/>
+        <path fill="url(#mp-nav-g-h)" d="M 19 31.5 L 24 31.5 L 24 32.8 L 19 32.8 Z"/>
+        <path fill="url(#mp-nav-g-h)" d="M 21 10 L 21 32 L 23.8 32 L 23.8 23 L 29 23 Q 36 23 36 16.5 Q 36 10 29 10 Z M 23.8 12.3 L 28.7 12.3 Q 33.3 12.3 33.3 16.5 Q 33.3 20.7 28.7 20.7 L 23.8 20.7 Z"/>
+        <path fill="url(#mp-nav-g-h)" d="M 20 9.5 L 25 9.5 L 25 10.8 L 20 10.8 Z"/>
+      </svg>
+      <span class="brand-name">Micah Price</span>
+    </a>
+    <label for="nav-toggle-cb" class="nav-toggle" aria-label="Toggle navigation">☰</label>
+    <nav class="site-nav-links" aria-label="Main navigation">
+      <a href="/" aria-current="page">Home</a>
+      <a href="/tool">Tool</a>
+      <a href="/examples">Examples</a>
+      <a href="/build-details">Build Details</a>
+      <a href="/about">About</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============================================================
+       HERO
+  ============================================================ -->
+  <section class="hero">
+    <svg class="hero-logo" viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg" aria-label="MP monogram" role="img">
+      <defs>
+        <linearGradient id="mp-hero-g" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#F4E5BC"/>
+          <stop offset="45%" stop-color="#D4B574"/>
+          <stop offset="100%" stop-color="#8C7A4F"/>
+        </linearGradient>
+        <linearGradient id="mp-hero-f" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#D4B574" stop-opacity="0.65"/>
+          <stop offset="100%" stop-color="#8C7A4F" stop-opacity="0.35"/>
+        </linearGradient>
+      </defs>
+      <rect x="14" y="14" width="212" height="212" fill="none" stroke="url(#mp-hero-f)" stroke-width="0.8"/>
+      <rect x="20" y="20" width="200" height="200" fill="none" stroke="url(#mp-hero-f)" stroke-width="0.4"/>
+      <path fill="url(#mp-hero-g)" d="M 38 182 L 38 58 L 50 58 L 85 150 L 120 58 L 132 58 L 132 182 L 120 182 L 120 82 L 90 162 L 80 162 L 50 82 L 50 182 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 33 57 Q 36 57 36 60 L 52 60 Q 52 57 55 57 L 55 59.5 L 33 59.5 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 115 57 Q 118 57 118 60 L 134 60 Q 134 57 137 57 L 137 59.5 L 115 59.5 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 28 180 L 60 180 L 60 184 L 28 184 Z M 30 184 L 58 184 L 58 185.5 L 30 185.5 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 110 180 L 142 180 L 142 184 L 110 184 Z M 112 184 L 140 184 L 140 185.5 L 112 185.5 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 124 70 L 124 182 L 138 182 L 138 138 L 166 138 Q 202 138 202 104 Q 202 70 166 70 Z M 138 82 L 164 82 Q 189 82 189 104 Q 189 126 164 126 L 138 126 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 118 68 L 145 68 L 145 72 L 118 72 Z M 120 72 L 143 72 L 143 73.5 L 120 73.5 Z"/>
+      <path fill="url(#mp-hero-g)" d="M 128 180 L 148 180 L 148 184 L 128 184 Z M 130 184 L 146 184 L 146 185.5 L 130 185.5 Z"/>
+    </svg>
+    <div class="hero-kicker">Commercial Real Estate · Deal Critique</div>
+    <h1 class="hero-title">Deal Memo<br/>Stress Tester</h1>
+    <p class="hero-sub">A second set of eyes on the pitch documents real estate investors write — in about fifteen seconds.</p>
+    <div class="hero-ctas">
+      <a href="/tool" class="cta cta-primary">Try the Tool</a>
+      <a href="/examples" class="cta cta-secondary">See an Example</a>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       WHAT IS THIS THING
+  ============================================================ -->
+  <section class="section">
+    <div class="section-kicker">§ 01 — What is this thing?</div>
+    <h2 class="section-title">In plain English, <em>this tool reads pitch documents and tells you what to worry about.</em></h2>
+    <p class="lede">When someone wants to buy an apartment building, an office tower, or a warehouse, they usually write a pitch document to raise money from investors. Those documents are packed with projections — how much rent will grow, what the building will be worth in five years, how much it costs to run. Some of those projections are reasonable. Some are quietly too optimistic.</p>
+    <p class="lede">Spotting the weak assumptions is a skill that takes years to build. Experienced real estate analysts can read a ten-page pitch and, within a few minutes, point at the three numbers that don't add up. <em>This tool captures that skill and makes it available in fifteen seconds.</em></p>
+    <p class="lede">You paste the document. The tool reads it, checks each assumption against a curated knowledge base of how these documents usually fail, and sends back a structured critique — concerns named in plain language, ranked by how much money is at stake, and with a specific list of questions to bring back to whoever wrote the document.</p>
+    <div class="limitation-note">
+      <strong>One honest caveat</strong>
+      This tool critiques the writing. It cannot verify claims — if the document says rent grew 5% last year, the tool will not tell you whether that is true. It flags assumptions that look unrealistic against industry norms. You still need to check the facts.
+    </div>
+  </section>
+
+  <!-- ============================================================
+       FEATURES
+  ============================================================ -->
+  <section class="section">
+    <div class="section-kicker">§ 02 — What makes it useful</div>
+    <h2 class="section-title">Four things this tool does <em>that a generic chatbot will not.</em></h2>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-num">Feature 01</div>
+        <div class="feature-title">Catches 25 common pitfalls</div>
+        <div class="feature-body">A curated catalog of the most frequent mistakes in real estate pitch documents — organized by category so every concern has a name, not just a vague gut feeling.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-num">Feature 02</div>
+        <div class="feature-title">Grounded in real sources</div>
+        <div class="feature-body">Built on public research from the industry's most cited firms — CBRE, NAREIT, NCREIF, and Green Street. The tool compares your document against how real institutional investors think.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-num">Feature 03</div>
+        <div class="feature-title">Refuses to make things up</div>
+        <div class="feature-body">Seven explicit rules prevent the tool from inventing market data. If it doesn't know the current cap rate for a specific city, it says so and tells you where to look — it will never guess a number.</div>
+      </div>
+      <div class="feature">
+        <div class="feature-num">Feature 04</div>
+        <div class="feature-title">Shows its work</div>
+        <div class="feature-body">Every concern is named, explained in plain language, and quantified where possible (what happens to projected returns if the assumption is wrong). You get reasoning, not vibes.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       WHO USES
+  ============================================================ -->
+  <section class="section">
+    <div class="section-kicker">§ 03 — Who uses it</div>
+    <h2 class="section-title">Built for the moment <em>before the decision.</em></h2>
+    <div class="audience">
+      <div class="audience-card">
+        <div class="audience-label">Real Estate Analysts</div>
+        <p class="audience-body">A disposable second read before you send a memo upstairs. Catches the patterns you already know to look for, but haven't had time to formally check.</p>
+      </div>
+      <div class="audience-card">
+        <div class="audience-label">Students &amp; Interns</div>
+        <p class="audience-body">A teaching reference that names the patterns. When a senior analyst tells you something is a red flag, this tool explains why — with specific examples and sources.</p>
+      </div>
+      <div class="audience-card">
+        <div class="audience-label">Curious Readers</div>
+        <p class="audience-body">No real estate background needed. Paste any public pitch document and read the critique alongside it. A hands-on way to learn how professionals actually think about these deals.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================================================
+       BOTTOM CTA
+  ============================================================ -->
+  <section class="cta-block">
+    <h2>Ready to pressure-test a deal?</h2>
+    <p>Paste a pitch document. Read the critique. It takes longer to read this sentence than to use the tool.</p>
+    <a href="/tool" class="cta cta-primary">Open the Tool</a>
+  </section>
+
+</main>
+
+<!-- ============================================================
+     FOOTER
+============================================================ -->
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="footer-brand">
+      <svg class="mp-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill="#D4B574" d="M 7 51 L 7 13 L 12 13 L 22 40 L 32 13 L 37 13 L 37 51 L 33 51 L 33 22 L 23 47 L 21 47 L 11 22 L 11 51 Z"/>
+        <path fill="#D4B574" d="M 34 16 L 34 51 L 38.5 51 L 38.5 37 L 47 37 Q 58 37 58 26.5 Q 58 16 47 16 Z M 38.5 19.5 L 46.5 19.5 Q 53.5 19.5 53.5 26.5 Q 53.5 33.5 46.5 33.5 L 38.5 33.5 Z"/>
+      </svg>
+      Micah Price · BCOR 2205
+    </div>
+    <div class="footer-links">
+      <a href="/">Home</a>
+      <a href="/tool">Tool</a>
+      <a href="/examples">Examples</a>
+      <a href="/build-details">Build</a>
+      <a href="/about">About</a>
+    </div>
+    <div class="footer-meta">Built with Claude · <a href="https://github.com/MpLLC303/Cre-Stress-Tester">Source</a></div>
+  </div>
+  <div class="footer-legal">Not investment advice. Do not paste confidential materials.</div>
+</footer>
+
+</body>
+</html>
