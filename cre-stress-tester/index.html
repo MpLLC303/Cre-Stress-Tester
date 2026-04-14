@@ -27,29 +27,130 @@
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  html{scroll-behavior:smooth}
   body{background:radial-gradient(ellipse at top,#0F0C18 0%,#07060A 60%) no-repeat;min-height:100vh}
   .wrap{max-width:960px;margin:0 auto;padding:48px 28px 120px}
 
-  /* MASTHEAD */
-  .masthead{border-bottom:1px solid var(--rule);padding-bottom:32px;margin-bottom:40px}
-  .kicker{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:14px}
-  .title{font-family:'Syne',sans-serif;font-weight:700;font-size:46px;line-height:1.05;letter-spacing:-0.02em;margin:0 0 12px;background:linear-gradient(135deg,#F4E5BC 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
-  .subtitle{font-style:italic;font-size:20px;color:var(--ink-dim);margin:0 0 6px;font-weight:400}
-  .meta{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.15em;color:var(--gold-3);text-transform:uppercase;margin-top:14px}
+  /* ============================================================
+     HERO SECTION
+  ============================================================ */
+  .hero{padding-bottom:52px;margin-bottom:40px;border-bottom:1px solid var(--rule);position:relative}
+  .hero-kicker{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.32em;color:var(--gold-2);text-transform:uppercase;margin-bottom:18px}
+  .hero-title{font-family:'Syne',sans-serif;font-weight:700;font-size:64px;line-height:1.02;letter-spacing:-0.025em;margin:0 0 18px;background:linear-gradient(135deg,#F4E5BC 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .hero-sub{font-style:italic;font-size:24px;color:var(--ink);margin:0 0 28px;font-weight:400;max-width:40ch;line-height:1.4}
+  .hero-meta{display:flex;flex-wrap:wrap;gap:18px;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.18em;color:var(--gold-3);text-transform:uppercase;margin-bottom:32px}
+  .hero-meta span{display:flex;align-items:center;gap:6px}
+  .hero-meta span::before{content:"◆";color:var(--gold-2);font-size:8px}
+  .hero-ctas{display:flex;gap:14px;flex-wrap:wrap}
+  .cta{display:inline-block;padding:14px 28px;border-radius:2px;font-family:'Syne',sans-serif;font-weight:600;font-size:13px;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;transition:all 0.15s;cursor:pointer;border:none}
+  .cta-primary{background:linear-gradient(135deg,var(--gold-1),var(--gold-3));color:#07060A;box-shadow:0 2px 12px rgba(201,168,106,0.25)}
+  .cta-primary:hover{box-shadow:0 4px 20px rgba(201,168,106,0.45);transform:translateY(-1px)}
+  .cta-secondary{background:transparent;border:1px solid var(--gold-3);color:var(--gold-1)}
+  .cta-secondary:hover{background:rgba(201,168,106,0.08);border-color:var(--gold-1)}
 
-  /* INTAKE CARD */
+  /* ============================================================
+     WHAT IT DOES
+  ============================================================ */
+  .section{margin:56px 0}
+  .section-kicker{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:14px}
+  .section-title{font-family:'Syne',sans-serif;font-weight:700;font-size:38px;line-height:1.1;letter-spacing:-0.015em;margin:0 0 22px;color:var(--ink)}
+  .section-title em{background:linear-gradient(135deg,#F4E5BC 0%,#C9A86A 100%);-webkit-background-clip:text;background-clip:text;color:transparent;font-style:italic;font-weight:700}
+  .lede{font-size:20px;line-height:1.55;color:var(--ink);max-width:68ch;margin-bottom:24px}
+  .lede em{color:var(--gold-1);font-style:italic}
+
+  /* ============================================================
+     HOW IT WORKS
+  ============================================================ */
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin:28px 0}
+  .step{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:20px 22px;position:relative;overflow:hidden}
+  .step::before{content:"";position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--gold-1),transparent)}
+  .step-num{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.25em;color:var(--gold-2);text-transform:uppercase;margin-bottom:10px}
+  .step-title{font-family:'Syne',sans-serif;font-weight:600;font-size:17px;color:var(--gold-1);margin:0 0 8px;letter-spacing:-0.005em}
+  .step-body{font-size:15px;color:var(--ink);line-height:1.55}
+
+  /* ============================================================
+     SAMPLE OUTPUT PREVIEW
+  ============================================================ */
+  .preview{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:28px;margin:28px 0;position:relative}
+  .preview-header{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--rule);padding-bottom:16px;margin-bottom:18px}
+  .preview-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.25em;color:var(--gold-2);text-transform:uppercase}
+  .preview-tag{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.12em;color:var(--ok);border:1px solid var(--ok);padding:3px 8px;border-radius:2px;text-transform:uppercase}
+  .preview-section-title{font-family:'Syne',sans-serif;font-weight:600;font-size:13px;letter-spacing:0.15em;color:var(--gold-1);text-transform:uppercase;margin:18px 0 8px}
+  .preview-section-title:first-of-type{margin-top:0}
+  .preview-body{font-size:16px;line-height:1.6;color:var(--ink)}
+  .preview-flag{background:rgba(215,120,120,0.05);border-left:3px solid var(--err);padding:11px 15px;margin:10px 0;border-radius:2px;font-size:15px}
+  .preview-flag strong{color:var(--err);font-family:'Syne',sans-serif;font-weight:600;font-size:14px;letter-spacing:0.04em;text-transform:uppercase;display:block;margin-bottom:4px}
+
+  /* ============================================================
+     WHO IT'S FOR
+  ============================================================ */
+  .audience{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px;margin:24px 0}
+  .audience-card{background:var(--panel-2);border:1px solid var(--rule);border-radius:3px;padding:20px 22px}
+  .audience-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.25em;color:var(--gold-2);text-transform:uppercase;margin-bottom:8px}
+  .audience-body{font-size:16px;color:var(--ink);line-height:1.55;margin:0}
+
+  /* ============================================================
+     REFUSALS PANEL
+  ============================================================ */
+  .refusals{background:linear-gradient(180deg,rgba(201,168,106,0.06),transparent);border:1px solid rgba(201,168,106,0.25);border-left:3px solid var(--gold-1);padding:22px 26px;margin:28px 0;border-radius:2px}
+  .refusals-title{font-family:'Syne',sans-serif;font-weight:600;font-size:14px;letter-spacing:0.15em;color:var(--gold-1);text-transform:uppercase;margin:0 0 14px}
+  .refusals ul{margin:0;padding-left:0;list-style:none}
+  .refusals li{padding:7px 0 7px 22px;position:relative;font-size:16px;color:var(--ink);line-height:1.5}
+  .refusals li::before{content:"—";position:absolute;left:0;color:var(--gold-3)}
+
+  /* ============================================================
+     EXPANDABLE "HOW THIS WAS BUILT"
+  ============================================================ */
+  details.build-details{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:0;margin:40px 0;overflow:hidden}
+  details.build-details summary{padding:22px 26px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;transition:background 0.15s}
+  details.build-details summary::-webkit-details-marker{display:none}
+  details.build-details summary:hover{background:rgba(201,168,106,0.04)}
+  details.build-details[open] summary{border-bottom:1px solid var(--rule)}
+  .build-summary-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase}
+  .build-summary-title{font-family:'Syne',sans-serif;font-weight:600;font-size:18px;color:var(--ink);margin-top:4px;letter-spacing:-0.005em}
+  .build-chevron{color:var(--gold-2);font-size:14px;transition:transform 0.25s;font-family:'JetBrains Mono',monospace}
+  details.build-details[open] .build-chevron{transform:rotate(90deg)}
+  .build-inner{padding:28px 30px}
+  .build-inner p{font-size:16px;line-height:1.65;margin:0 0 14px;color:var(--ink)}
+  .build-inner h4{font-family:'Syne',sans-serif;font-weight:600;font-size:13px;letter-spacing:0.15em;color:var(--gold-1);text-transform:uppercase;margin:24px 0 10px}
+  .build-inner h4:first-child{margin-top:0}
+  .build-stack{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0 18px}
+  .build-tech{background:var(--panel-2);border:1px solid var(--rule);padding:10px 14px;border-radius:2px;font-size:14px}
+  .build-tech-label{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.2em;color:var(--gold-2);text-transform:uppercase;margin-bottom:4px;display:block}
+  .build-tech-value{color:var(--ink);font-weight:500}
+  .stack-pills{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 18px}
+  .pill{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.08em;color:var(--gold-1);border:1px solid var(--gold-3);padding:4px 10px;border-radius:2px}
+  .build-numbers{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin:14px 0 20px}
+  .build-stat{background:var(--panel-2);border:1px solid var(--rule);padding:14px 16px;border-radius:2px;text-align:center}
+  .build-stat-value{font-family:'Syne',sans-serif;font-weight:700;font-size:28px;color:var(--gold-1);line-height:1;letter-spacing:-0.01em}
+  .build-stat-label{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.2em;color:var(--ink-dim);text-transform:uppercase;margin-top:6px}
+
+  /* ============================================================
+     DIVIDER before the tool
+  ============================================================ */
+  .tool-divider{margin:70px 0 40px;text-align:center;position:relative}
+  .tool-divider::before{content:"";position:absolute;top:50%;left:0;right:0;height:1px;background:var(--rule);z-index:0}
+  .tool-divider span{display:inline-block;background:var(--bg);padding:0 22px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.35em;color:var(--gold-2);text-transform:uppercase;position:relative;z-index:1}
+
+  /* ============================================================
+     TOOL SECTION (unchanged from original)
+  ============================================================ */
+  #tool{scroll-margin-top:20px}
+  .tool-masthead{padding-bottom:26px;margin-bottom:32px;border-bottom:1px solid var(--rule)}
+  .tool-kicker{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:12px}
+  .tool-title{font-family:'Syne',sans-serif;font-weight:700;font-size:36px;line-height:1.1;letter-spacing:-0.015em;margin:0 0 8px;background:linear-gradient(135deg,#F4E5BC 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tool-subtitle{font-style:italic;font-size:18px;color:var(--ink-dim);margin:0}
+
   .card{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:26px;margin-bottom:22px}
   .card h2{font-family:'Syne',sans-serif;font-weight:600;font-size:18px;letter-spacing:-0.01em;margin:0 0 4px;color:var(--gold-1);text-transform:uppercase;letter-spacing:0.15em;font-size:11px}
   .card .hint{font-size:14px;color:var(--ink-dim);font-style:italic;margin:0 0 18px}
 
-  /* INTAKE GRID */
   .intake-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px}
   .field label{display:block;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.18em;color:var(--gold-2);text-transform:uppercase;margin-bottom:6px}
   .field input, .field select{width:100%;background:var(--panel-2);border:1px solid var(--rule);border-radius:2px;padding:10px 12px;color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:16px;outline:none;transition:border-color 0.15s}
   .field input:focus, .field select:focus{border-color:var(--gold-2)}
   .field select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%23C9A86A' d='M6 8L0 0h12z'/></svg>");background-repeat:no-repeat;background-position:right 12px center;padding-right:30px}
 
-  /* MEMO INPUT */
   .memo-card textarea{width:100%;min-height:240px;background:var(--panel-2);border:1px solid var(--rule);border-radius:2px;padding:14px 16px;color:var(--ink);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;outline:none;resize:vertical;transition:border-color 0.15s}
   .memo-card textarea:focus{border-color:var(--gold-2)}
   .memo-footer{display:flex;justify-content:space-between;align-items:center;margin-top:14px;flex-wrap:wrap;gap:12px}
@@ -57,19 +158,16 @@
   .word-count.warn{color:var(--warn)}
   .word-count.err{color:var(--err)}
 
-  /* BUTTON */
   .submit-btn{background:linear-gradient(135deg,var(--gold-1),var(--gold-3));border:none;color:#07060A;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.15em;text-transform:uppercase;padding:14px 32px;border-radius:2px;cursor:pointer;transition:all 0.15s;box-shadow:0 2px 12px rgba(201,168,106,0.25)}
   .submit-btn:hover:not(:disabled){box-shadow:0 4px 20px rgba(201,168,106,0.45);transform:translateY(-1px)}
   .submit-btn:disabled{opacity:0.4;cursor:not-allowed}
 
-  /* LOADING */
   .loader{display:none;text-align:center;padding:40px 0}
   .loader.active{display:block}
   .loader-spinner{display:inline-block;width:32px;height:32px;border:2px solid var(--rule);border-top-color:var(--gold-1);border-radius:50%;animation:spin 1s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   .loader-msg{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.2em;color:var(--gold-2);text-transform:uppercase;margin-top:16px}
 
-  /* RESULTS */
   .results{display:none;margin-top:40px}
   .results.active{display:block}
   .result-section{background:var(--panel);border:1px solid var(--rule);border-radius:3px;margin-bottom:18px;overflow:hidden;position:relative}
@@ -82,115 +180,345 @@
   .result-body ol, .result-body ul{padding-left:20px;margin:10px 0}
   .result-body li{margin-bottom:8px}
 
-  /* RED FLAG CARDS inside red_flags_identified */
   .flag-card{background:rgba(215,120,120,0.04);border-left:3px solid var(--err);padding:12px 16px;margin:12px 0;border-radius:2px}
   .flag-card .flag-name{font-family:'Syne',sans-serif;font-weight:600;color:var(--err);font-size:15px;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em}
 
-  /* DISCLAIMER */
   .disclaimer{background:rgba(107,167,201,0.04);border:1px solid rgba(107,167,201,0.25);border-left:3px solid var(--blue);padding:14px 20px;margin-top:24px;border-radius:2px;font-size:14px;color:var(--ink-dim);font-style:italic}
 
-  /* ERROR */
   .error-panel{display:none;background:rgba(215,120,120,0.08);border:1px solid var(--err);border-left:3px solid var(--err);padding:16px 20px;border-radius:2px;margin-top:20px;color:var(--err);font-family:'JetBrains Mono',monospace;font-size:13px}
   .error-panel.active{display:block}
 
-  /* COPY BUTTON */
   .copy-btn{background:rgba(201,168,106,0.15);border:1px solid var(--gold-3);color:var(--gold-1);font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:0.15em;text-transform:uppercase;padding:5px 10px;border-radius:2px;cursor:pointer;transition:all 0.15s}
   .copy-btn:hover{background:rgba(201,168,106,0.28);border-color:var(--gold-1)}
   .copy-btn.copied{background:rgba(134,201,149,0.15);border-color:var(--ok);color:var(--ok)}
 
-  /* FOOTER */
-  footer{margin-top:60px;padding-top:28px;border-top:1px solid var(--rule);font-size:13px;color:var(--ink-dim);font-family:'JetBrains Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;text-align:center}
+  footer{margin-top:70px;padding-top:32px;border-top:1px solid var(--rule);font-size:12px;color:var(--ink-dim);font-family:'JetBrains Mono',monospace;letter-spacing:0.1em;text-transform:uppercase;text-align:center;line-height:1.8}
   footer a{color:var(--gold-2);text-decoration:none}
   footer a:hover{color:var(--gold-1)}
 
-  /* Responsive */
   @media (max-width: 640px){
     .wrap{padding:32px 18px 80px}
-    .title{font-size:34px}
-    .subtitle{font-size:17px}
+    .hero-title{font-size:42px}
+    .hero-sub{font-size:19px}
+    .section-title{font-size:28px}
+    .tool-title{font-size:28px}
+    .hero-ctas{flex-direction:column}
+    .cta{text-align:center}
   }
 </style>
 </head>
 <body>
 <div class="wrap">
 
-<header class="masthead">
-  <div class="kicker">CRE Acquisitions Critique · Ground-Truth Tool</div>
-  <h1 class="title">Deal Memo Stress Tester</h1>
-  <p class="subtitle">The first-pass critique an acquisitions associate would actually do — in about fifteen seconds.</p>
-  <div class="meta">Claude Sonnet 4.6 · Six-file knowledge base · Anti-hallucination ruleset</div>
-</header>
+<!-- ============================================================
+     HERO
+============================================================ -->
+<section class="hero">
+  <div class="hero-kicker">CRE Acquisitions Critique · First-Pass Analysis</div>
+  <h1 class="hero-title">Deal Memo<br/>Stress Tester</h1>
+  <p class="hero-sub">The first-pass critique an acquisitions associate would actually do — in about fifteen seconds.</p>
+  <div class="hero-meta">
+    <span>Claude Sonnet 4.6</span>
+    <span>Six-File Knowledge Base</span>
+    <span>Seven-Rule Anti-Hallucination Stack</span>
+  </div>
+  <div class="hero-ctas">
+    <a href="#tool" class="cta cta-primary">Try the Tool</a>
+    <a href="#how-it-works" class="cta cta-secondary">How it Works</a>
+  </div>
+</section>
 
-<!-- INTAKE -->
-<div class="card">
-  <h2>Deal Context · All Optional</h2>
-  <p class="hint">Skip any field you don't know — the analysis will infer from the memo and flag what it can't determine.</p>
+<!-- ============================================================
+     WHAT IT DOES
+============================================================ -->
+<section class="section">
+  <div class="section-kicker">§ 01 — What it does</div>
+  <h2 class="section-title">A <em>second opinion</em> on your underwriting, before you walk into committee.</h2>
+  <p class="lede">Paste a commercial real estate deal memo or pro forma summary, and get the structured critique an experienced acquisitions associate would produce — red flags named by pattern, fragility ranked by dollar impact, and a specific verification checklist of questions to bring back to the sponsor.</p>
+  <p class="lede">The tool is deliberately <em>skeptical by default.</em> It refuses to validate a deal because the user wants validation, refuses to fabricate live market data it doesn't have, and refuses to flag reasonable deals just to seem thorough.</p>
+</section>
 
-  <div class="intake-grid">
-    <div class="field">
-      <label>Asset Class</label>
-      <select id="asset-class">
-        <option value="">—</option>
-        <option>Multifamily</option>
-        <option>Office</option>
-        <option>Industrial</option>
-        <option>Retail</option>
-        <option>Hospitality</option>
-        <option>Mixed-Use</option>
-        <option>Other</option>
-      </select>
+<!-- ============================================================
+     HOW IT WORKS
+============================================================ -->
+<section class="section" id="how-it-works">
+  <div class="section-kicker">§ 02 — How it works</div>
+  <h2 class="section-title">Four steps from paste to <em>pressure-tested</em>.</h2>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">Step 01</div>
+      <div class="step-title">Paste the Memo</div>
+      <div class="step-body">Deal memo body, pro forma summary, or key underwriting assumptions. Optional intake fields let you specify asset class, market, strategy, hold, and target IRR.</div>
     </div>
-    <div class="field">
-      <label>Market / Submarket</label>
-      <input id="market" type="text" placeholder="e.g. Phoenix West Valley" />
+    <div class="step">
+      <div class="step-num">Step 02</div>
+      <div class="step-title">Grounded Retrieval</div>
+      <div class="step-body">The tool pulls from six curated knowledge files — a 25-entry red flag catalog, asset-class market ranges, a sensitivity framework, and a cap rate cycle reference.</div>
     </div>
-    <div class="field">
-      <label>Strategy</label>
-      <select id="strategy">
-        <option value="">—</option>
-        <option>Core</option>
-        <option>Core-Plus</option>
-        <option>Value-Add</option>
-        <option>Opportunistic</option>
-        <option>Development</option>
-      </select>
+    <div class="step">
+      <div class="step-num">Step 03</div>
+      <div class="step-title">Rule-Bound Critique</div>
+      <div class="step-body">Seven non-negotiable rules govern the output: no fabricated numbers, cite the red flag by name, quantify fragility, respect the cycle, default to skepticism, no over-flagging, end with the disclaimer.</div>
     </div>
-    <div class="field">
-      <label>Hold (yrs)</label>
-      <input id="hold" type="number" min="1" max="30" placeholder="5" />
-    </div>
-    <div class="field">
-      <label>Target IRR (%)</label>
-      <input id="irr" type="number" min="0" max="50" step="0.1" placeholder="15" />
+    <div class="step">
+      <div class="step-num">Step 04</div>
+      <div class="step-title">Structured Output</div>
+      <div class="step-body">Deal snapshot, named red flags, ranked fragility assessment, a verification checklist with sources, and an honest list of what the tool could not assess.</div>
     </div>
   </div>
-</div>
+</section>
 
-<!-- MEMO INPUT -->
-<div class="card memo-card">
-  <h2>Paste Deal Memo</h2>
-  <p class="hint">Deal memo body, pro forma summary, or key underwriting assumptions. The analysis works best on text between 150 and 2,000 words.</p>
-  <textarea id="memo" placeholder="Deal Snapshot&#10;Sponsor Thesis&#10;Key Assumptions (rent growth, exit cap, opex growth, debt terms, hold period, target IRR)&#10;Capital Stack&#10;Comparable Sales"></textarea>
-  <div class="memo-footer">
-    <span class="word-count" id="word-count">0 words</span>
-    <button class="submit-btn" id="submit-btn" disabled>Stress Test This Memo</button>
+<!-- ============================================================
+     SAMPLE OUTPUT PREVIEW
+============================================================ -->
+<section class="section">
+  <div class="section-kicker">§ 03 — Example output</div>
+  <h2 class="section-title">What the tool <em>actually produces</em>.</h2>
+  <p class="lede">A snapshot of a live critique on a test deal memo — a Class B multifamily value-add with aggressive rent growth and exit cap compression.</p>
+  <div class="preview">
+    <div class="preview-header">
+      <span class="preview-label">Live output · Persona A · value-add multifamily</span>
+      <span class="preview-tag">Real Run</span>
+    </div>
+    <div class="preview-body">
+      <div class="preview-section-title">§01 · Deal Snapshot</div>
+      <p>284-unit Class B garden-style multifamily (1986 vintage) in Phoenix West Valley. Purchase price $65.3M ($230K/unit), 5.25% going-in cap. Value-add strategy with $8K/unit interior renovations and stated 18.2% IRR target.</p>
+
+      <div class="preview-section-title">§02 · Red Flags Identified</div>
+      <div class="preview-flag">
+        <strong>Unrealistic Rent Growth (KF-02 #1)</strong>
+        5.75% sustained annual rent growth over five years is ~200 bps above long-run submarket averages. A reversion to 3.5% growth compresses Year-5 NOI by roughly 10–12%.
+      </div>
+      <div class="preview-flag">
+        <strong>Exit Cap Compression (KF-02 #12)</strong>
+        50 bps compression from 5.25% entry to 4.75% exit assumes a tighter rate environment at sale than at acquisition. A flat exit cap of 5.25% reduces IRR from 18.2% to approximately 13–14%.
+      </div>
+      <div class="preview-flag">
+        <strong>Interest-Only Masking Amortization Cliff (KF-02 #19)</strong>
+        Full-term IO for the entire 5-year hold defers all principal repayment to refinance or sale. Stress-test year-1 cash-on-cash on 30-year amortization and refinance risk at current market rates plus 100 bps.
+      </div>
+
+      <div class="preview-section-title">§03 · Verification Checklist (excerpt)</div>
+      <ul style="margin:8px 0 0;padding-left:22px">
+        <li>Pull trailing 10-year submarket rent growth from CoStar; compare to the 5.75% projection.</li>
+        <li>Check exit cap against trailing 6-month Class B multifamily trades in the submarket per CBRE Research.</li>
+        <li>Confirm Maricopa County reassessment-on-sale policy; re-size year-1 tax bill against purchase price, not seller's T-12.</li>
+      </ul>
+    </div>
   </div>
+</section>
+
+<!-- ============================================================
+     WHO IT'S FOR
+============================================================ -->
+<section class="section">
+  <div class="section-kicker">§ 04 — Who uses it</div>
+  <h2 class="section-title">Built for the moment <em>before</em> the decision.</h2>
+  <div class="audience">
+    <div class="audience-card">
+      <div class="audience-label">Acquisitions Analysts</div>
+      <p class="audience-body">A disposable second read before sending a memo to your VP — catches the patterns you've already internalized but haven't had time to formally stress-test.</p>
+    </div>
+    <div class="audience-card">
+      <div class="audience-label">Interns &amp; Rotation Associates</div>
+      <p class="audience-body">A teaching reference that names the patterns — so the feedback you get from a senior analyst makes sense the first time, not the tenth.</p>
+    </div>
+    <div class="audience-card">
+      <div class="audience-label">Students &amp; Early-Career LPs</div>
+      <p class="audience-body">A grounded starting point for reading third-party memos critically, with a knowledge base drawn from public CRE research (CBRE, NAREIT, NCREIF, Green Street).</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================
+     REFUSALS
+============================================================ -->
+<section class="section">
+  <div class="section-kicker">§ 05 — What this tool does not do</div>
+  <h2 class="section-title">The refusals are <em>the point.</em></h2>
+  <p class="lede">A stress tester that tells you what you want to hear isn't a stress tester. The tool is built with explicit refusal anchors for the failure modes that break similar products:</p>
+  <div class="refusals">
+    <div class="refusals-title">Non-negotiable refusals</div>
+    <ul>
+      <li>Does <strong>not</strong> make buy, sell, or hold recommendations.</li>
+      <li>Does <strong>not</strong> predict future cap rates, interest rates, or market direction.</li>
+      <li>Does <strong>not</strong> fabricate live market data — if a current cap rate, loan spread, or rent comp is unknown, it says so and directs to CBRE, Green Street, CoStar, or NAREIT.</li>
+      <li>Does <strong>not</strong> validate a deal because the user frames it favorably.</li>
+      <li>Does <strong>not</strong> invent flags to seem thorough — defensible deals get called defensible.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================
+     EXPANDABLE — HOW THIS WAS BUILT
+============================================================ -->
+<details class="build-details">
+  <summary>
+    <div>
+      <div class="build-summary-label">§ 06 — For the curious</div>
+      <div class="build-summary-title">How this was built</div>
+    </div>
+    <span class="build-chevron">▸</span>
+  </summary>
+  <div class="build-inner">
+    <p>A full-stack build designed to demonstrate applied prompt engineering, curated retrieval, and cost-aware model selection on a real portfolio project.</p>
+
+    <h4>Architecture</h4>
+    <div class="build-stack">
+      <div class="build-tech">
+        <span class="build-tech-label">Frontend</span>
+        <span class="build-tech-value">Single-file HTML + vanilla JS</span>
+      </div>
+      <div class="build-tech">
+        <span class="build-tech-label">Backend</span>
+        <span class="build-tech-value">Vercel serverless function (Node)</span>
+      </div>
+      <div class="build-tech">
+        <span class="build-tech-label">Model</span>
+        <span class="build-tech-value">Anthropic Claude · Sonnet / Haiku</span>
+      </div>
+      <div class="build-tech">
+        <span class="build-tech-label">Knowledge</span>
+        <span class="build-tech-value">Six curated markdown files</span>
+      </div>
+      <div class="build-tech">
+        <span class="build-tech-label">Caching</span>
+        <span class="build-tech-value">Anthropic prompt cache · ~90% input discount</span>
+      </div>
+      <div class="build-tech">
+        <span class="build-tech-label">Hosting</span>
+        <span class="build-tech-value">Vercel free tier · auto-deploy from Git</span>
+      </div>
+    </div>
+
+    <h4>Prompt engineering stack — applied across all prompts</h4>
+    <div class="stack-pills">
+      <span class="pill">role priming</span>
+      <span class="pill">xml delimiters</span>
+      <span class="pill">output schemas</span>
+      <span class="pill">few-shot</span>
+      <span class="pill">chain-of-thought</span>
+      <span class="pill">negative constraints</span>
+      <span class="pill">self-critique loops</span>
+      <span class="pill">confidence calibration</span>
+      <span class="pill">length caps</span>
+      <span class="pill">refusal anchors</span>
+    </div>
+
+    <h4>Iteration path</h4>
+    <p>Three versions of the system prompt were built and compared: <strong>v1</strong> (role priming only, no knowledge files), <strong>v2</strong> (knowledge files integrated, structured intake), and <strong>v3</strong> (seven numbered rules, mandatory XML output schema, refusal anchors, disclaimer). v3 combines seven of the ten engineering techniques in a single prompt and is the version running in production.</p>
+
+    <h4>Model selection &amp; cost</h4>
+    <p>Benchmarked Claude Sonnet 4.6 against Claude Haiku 4.5 on a four-persona test set (value-add multifamily, gateway core office, industrial control case, hospitality reflag). Prompt caching reduces per-call input cost by ~90% after the first call, since the 10K-token knowledge base is static across calls.</p>
+    <div class="build-numbers">
+      <div class="build-stat">
+        <div class="build-stat-value">~$0.015</div>
+        <div class="build-stat-label">Cost / cached call</div>
+      </div>
+      <div class="build-stat">
+        <div class="build-stat-value">~12K</div>
+        <div class="build-stat-label">Input tokens / call</div>
+      </div>
+      <div class="build-stat">
+        <div class="build-stat-value">25</div>
+        <div class="build-stat-label">Named red flags</div>
+      </div>
+      <div class="build-stat">
+        <div class="build-stat-value">10/hr</div>
+        <div class="build-stat-label">Rate limit / IP</div>
+      </div>
+    </div>
+
+    <h4>Knowledge base</h4>
+    <p>Six curated files totaling ~10,000 tokens: a CRE underwriting fundamentals reference, a 25-entry red flag catalog organized into five categories (revenue, expense, cap rate &amp; exit, debt &amp; capital structure, structural &amp; market), asset-class market ranges, a sensitivity analysis framework, sample annotated memos for pattern teaching, and a cap rate cycle reference. Source material drawn from CBRE Research, NAREIT, NCREIF, Green Street Advisors, NAIOP, and Adventures in CRE.</p>
+
+    <h4>Testing &amp; evaluation</h4>
+    <p>Four test personas with embedded red-flag answer keys (seven flags, six flags, four flags, six flags respectively). Persona C is a control case designed specifically to test for <em>over-flagging</em> — a failure mode as severe as missing real flags. The tool is scored on five dimensions: red flag detection, citation discipline, fragility analysis, no-hallucination compliance, and analytical depth.</p>
+  </div>
+</details>
+
+<!-- ============================================================
+     DIVIDER INTO THE TOOL
+============================================================ -->
+<div class="tool-divider"><span>The Tool</span></div>
+
+<!-- ============================================================
+     TOOL — preserved exactly from original
+============================================================ -->
+<div id="tool">
+  <header class="tool-masthead">
+    <div class="tool-kicker">CRE Acquisitions Critique · Ground-Truth Tool</div>
+    <h2 class="tool-title">Stress Test a Deal Memo</h2>
+    <p class="tool-subtitle">Optional intake, paste the memo, read the critique.</p>
+  </header>
+
+  <div class="card">
+    <h2>Deal Context · All Optional</h2>
+    <p class="hint">Skip any field you don't know — the analysis will infer from the memo and flag what it can't determine.</p>
+
+    <div class="intake-grid">
+      <div class="field">
+        <label>Asset Class</label>
+        <select id="asset-class">
+          <option value="">—</option>
+          <option>Multifamily</option>
+          <option>Office</option>
+          <option>Industrial</option>
+          <option>Retail</option>
+          <option>Hospitality</option>
+          <option>Mixed-Use</option>
+          <option>Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Market / Submarket</label>
+        <input id="market" type="text" placeholder="e.g. Phoenix West Valley" />
+      </div>
+      <div class="field">
+        <label>Strategy</label>
+        <select id="strategy">
+          <option value="">—</option>
+          <option>Core</option>
+          <option>Core-Plus</option>
+          <option>Value-Add</option>
+          <option>Opportunistic</option>
+          <option>Development</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Hold (yrs)</label>
+        <input id="hold" type="number" min="1" max="30" placeholder="5" />
+      </div>
+      <div class="field">
+        <label>Target IRR (%)</label>
+        <input id="irr" type="number" min="0" max="50" step="0.1" placeholder="15" />
+      </div>
+    </div>
+  </div>
+
+  <div class="card memo-card">
+    <h2>Paste Deal Memo</h2>
+    <p class="hint">Deal memo body, pro forma summary, or key underwriting assumptions. The analysis works best on text between 150 and 2,000 words.</p>
+    <textarea id="memo" placeholder="Deal Snapshot&#10;Sponsor Thesis&#10;Key Assumptions (rent growth, exit cap, opex growth, debt terms, hold period, target IRR)&#10;Capital Stack&#10;Comparable Sales"></textarea>
+    <div class="memo-footer">
+      <span class="word-count" id="word-count">0 words</span>
+      <button class="submit-btn" id="submit-btn" disabled>Stress Test This Memo</button>
+    </div>
+  </div>
+
+  <div class="error-panel" id="error-panel"></div>
+
+  <div class="loader" id="loader">
+    <div class="loader-spinner"></div>
+    <div class="loader-msg" id="loader-msg">Pulling the red flag catalog</div>
+  </div>
+
+  <div class="results" id="results"></div>
 </div>
-
-<!-- ERROR -->
-<div class="error-panel" id="error-panel"></div>
-
-<!-- LOADING -->
-<div class="loader" id="loader">
-  <div class="loader-spinner"></div>
-  <div class="loader-msg" id="loader-msg">Pulling the red flag catalog</div>
-</div>
-
-<!-- RESULTS -->
-<div class="results" id="results"></div>
 
 <footer>
-  <p>BCOR 2205 · Built with Claude Sonnet 4.6 · <a href="https://github.com" id="src-link">Source</a></p>
+  <p>BCOR 2205 · Built with Claude · <a href="#" id="src-link">Source</a></p>
+  <p style="margin-top:8px;font-style:normal">Not investment advice. Do not paste confidential materials.</p>
 </footer>
 
 </div>
@@ -207,7 +535,6 @@
   const MAX_WORDS = 5000;
   const MIN_WORDS = 50;
 
-  // Word counter
   function updateCount() {
     const words = memo.value.trim().split(/\s+/).filter(Boolean).length;
     wordCount.textContent = `${words.toLocaleString()} words`;
@@ -218,7 +545,6 @@
   }
   memo.addEventListener('input', updateCount);
 
-  // Loading messages — rotate while analysis runs
   const LOADER_MESSAGES = [
     'Pulling the red flag catalog',
     'Cross-checking the asset class ranges',
@@ -237,7 +563,6 @@
     }, 2400);
   }
 
-  // Parse XML-tagged response into sections
   function parseResponse(text) {
     const sections = {};
     const tagPatterns = {
@@ -252,21 +577,18 @@
       const match = text.match(pattern);
       if (match) sections[key] = match[1].trim();
     }
-    // If no XML found, fall back to showing raw text in a single section
     if (Object.keys(sections).length === 0) {
       sections.raw = text;
     }
     return sections;
   }
 
-  // Very simple markdown → HTML (bold, bullets, paragraphs)
   function md(text) {
     if (!text) return '';
     let html = text
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-    // Convert bullet lists
     const lines = html.split('\n');
     const out = [];
     let inList = false;
@@ -287,10 +609,8 @@
     return out.join('');
   }
 
-  // Render red flags as cards (special case)
   function renderRedFlags(text) {
     if (!text) return '';
-    // Split on numbered items or ** ** bold names
     const items = text.split(/(?=\n?\s*(?:\d+\.|[-*])\s+\*\*)/).filter(s => s.trim());
     if (items.length === 0) return md(text);
     return items.map(item => {
@@ -303,7 +623,6 @@
     }).join('');
   }
 
-  // Render all results
   function render(sections) {
     const sectionDefs = [
       { key: 'deal_snapshot', id: '§01', title: 'Deal Snapshot', renderer: md },
@@ -333,7 +652,6 @@
     results.innerHTML = html;
     results.classList.add('active');
 
-    // Wire copy buttons
     document.querySelectorAll('.copy-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const text = decodeURIComponent(btn.dataset.text);
@@ -346,7 +664,6 @@
     });
   }
 
-  // Submit handler
   submitBtn.addEventListener('click', async () => {
     errorPanel.classList.remove('active');
     results.classList.remove('active');
@@ -390,7 +707,6 @@
       const sections = parseResponse(data.analysis || '');
       render(sections);
 
-      // Scroll to results
       results.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch (err) {
       clearInterval(loaderInterval);
