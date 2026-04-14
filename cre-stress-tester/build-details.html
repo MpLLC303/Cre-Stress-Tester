@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Deal Memo Stress Tester · Build Details</title>
+<meta name="description" content="A technical look under the hood — architecture, prompt engineering, model selection, testing protocol." />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Syne:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#07060A;--panel:#0E0C14;--panel-2:#13111B;--ink:#F4F1E8;--ink-strong:#FFFCF4;--ink-dim:#B8B1A0;--rule:#2A2533;--gold-1:#D4B574;--gold-2:#C9A86A;--gold-3:#8C7A4F;--ok:#86C995;--warn:#E3B765;--err:#E89090;--blue:#85BDDE;--nav-h:68px}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:19px;font-weight:500;line-height:1.65;-webkit-font-smoothing:antialiased}
+  body{background:radial-gradient(ellipse at top,#0F0C18 0%,#07060A 60%) no-repeat;min-height:100vh}
+  a{color:var(--gold-1);text-decoration:none;transition:color 0.15s}
+  a:hover{color:var(--gold-2)}
+
+  .site-nav{position:sticky;top:0;z-index:50;background:rgba(7,6,10,0.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule);height:var(--nav-h);display:flex;align-items:center}
+  .site-nav-inner{max-width:1100px;width:100%;margin:0 auto;padding:0 28px;display:flex;align-items:center;justify-content:space-between}
+  .site-nav-brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+  .site-nav-brand .mp-logo{width:34px;height:34px;flex-shrink:0}
+  .site-nav-brand .brand-name{font-family:'Syne',sans-serif;font-weight:700;font-size:15px;color:var(--ink-strong)}
+  .site-nav-brand:hover .brand-name{color:var(--gold-1)}
+  .site-nav-links{display:flex;gap:4px}
+  .site-nav-links a{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-dim);padding:10px 14px;border-radius:2px;position:relative}
+  .site-nav-links a:hover{color:var(--gold-1)}
+  .site-nav-links a[aria-current="page"]{color:var(--gold-1)}
+  .site-nav-links a[aria-current="page"]::after{content:"";position:absolute;bottom:3px;left:14px;right:14px;height:2px;background:linear-gradient(90deg,var(--gold-1),var(--gold-3))}
+  .nav-toggle{display:none;background:transparent;border:1px solid var(--rule);color:var(--gold-1);width:44px;height:44px;border-radius:2px;cursor:pointer;font-size:18px;align-items:center;justify-content:center}
+  @media (max-width:840px){.site-nav-links{display:none;position:absolute;top:var(--nav-h);left:0;right:0;flex-direction:column;background:rgba(7,6,10,0.98);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule);padding:12px}.site-nav-links a{padding:14px 16px}.nav-toggle{display:inline-flex}#nav-toggle-cb:checked ~ .site-nav-inner .site-nav-links{display:flex}}
+  #nav-toggle-cb{display:none}
+
+  main{max-width:960px;margin:0 auto;padding:48px 28px 80px}
+  .page-header{padding-bottom:32px;margin-bottom:44px;border-bottom:1px solid var(--rule)}
+  .page-kicker{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:14px}
+  .page-title{font-family:'Syne',sans-serif;font-weight:700;font-size:52px;line-height:1.05;letter-spacing:-0.02em;margin:0 0 16px;background:linear-gradient(135deg,#FFF5D5 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .page-subtitle{font-style:italic;font-size:22px;color:var(--ink);margin:0;max-width:56ch;line-height:1.45;font-weight:500}
+
+  .build-section{margin:52px 0;padding-bottom:48px;border-bottom:1px dotted var(--rule)}
+  .build-section:last-of-type{border-bottom:none}
+  .build-num{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.28em;color:var(--gold-2);text-transform:uppercase;margin-bottom:12px}
+  .build-title{font-family:'Syne',sans-serif;font-weight:700;font-size:32px;line-height:1.15;letter-spacing:-0.01em;color:var(--ink-strong);margin:0 0 18px}
+  .build-body{font-size:19px;color:var(--ink);line-height:1.65;font-weight:500;max-width:68ch}
+  .build-body p{margin:0 0 16px}
+  .build-body strong{color:var(--ink-strong);font-weight:600}
+  .build-body em{color:var(--gold-1);font-style:italic}
+
+  .stack-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin:24px 0}
+  .stack-card{background:var(--panel-2);border:1px solid var(--rule);padding:14px 18px;border-radius:2px}
+  .stack-label{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.2em;color:var(--gold-2);text-transform:uppercase;margin-bottom:6px;display:block}
+  .stack-value{color:var(--ink);font-size:16px;font-weight:500}
+
+  .pill-row{display:flex;flex-wrap:wrap;gap:8px;margin:22px 0 26px}
+  .pill{display:inline-block;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:0.08em;color:var(--gold-1);border:1px solid var(--gold-3);padding:6px 12px;border-radius:2px;background:rgba(201,168,106,0.04)}
+
+  .version-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin:24px 0}
+  .version-card{background:var(--panel);border:1px solid var(--rule);padding:22px 24px;border-radius:3px;position:relative;overflow:hidden}
+  .version-card::before{content:"";position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--gold-1),transparent)}
+  .version-label{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.25em;color:var(--gold-2);text-transform:uppercase;margin-bottom:10px}
+  .version-card h4{font-family:'Syne',sans-serif;font-weight:700;color:var(--ink-strong);font-size:17px;margin:0 0 12px}
+  .version-card p{font-size:16px;color:var(--ink);line-height:1.55;margin:0}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:26px 0}
+  .stat-card{background:var(--panel-2);border:1px solid var(--rule);padding:22px 20px;border-radius:2px;text-align:center}
+  .stat-value{font-family:'Syne',sans-serif;font-weight:700;font-size:34px;color:var(--gold-1);line-height:1;letter-spacing:-0.01em}
+  .stat-label{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.2em;color:var(--ink-dim);text-transform:uppercase;margin-top:10px}
+
+  .kf-list{list-style:none;padding:0;margin:20px 0 26px}
+  .kf-list li{padding:12px 0 12px 22px;position:relative;border-bottom:1px dotted var(--rule);font-size:17px;color:var(--ink);line-height:1.55;font-weight:500}
+  .kf-list li:last-child{border-bottom:none}
+  .kf-list li::before{content:"KF-"counter(kf,decimal-leading-zero);counter-increment:kf;position:absolute;left:0;color:var(--gold-2);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;letter-spacing:0.1em;top:14px}
+  .kf-list{counter-reset:kf}
+  .kf-list li{padding-left:50px}
+  .kf-list li strong{color:var(--gold-1);font-weight:700}
+
+  .limitation-box{background:rgba(133,189,222,0.05);border:1px solid rgba(133,189,222,0.25);border-left:3px solid var(--blue);padding:22px 26px;margin:26px 0;border-radius:2px}
+  .limitation-box h4{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.15em;color:var(--blue);text-transform:uppercase;margin:0 0 12px}
+  .limitation-box p{margin:0;font-size:17px;color:var(--ink);line-height:1.6;font-weight:500}
+
+  .site-footer{margin-top:100px;padding:32px 28px;border-top:1px solid var(--rule)}
+  .site-footer-inner{max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+  .footer-brand{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:0.1em;color:var(--ink-dim);text-transform:uppercase}
+  .footer-brand .mp-logo{width:22px;height:22px}
+  .footer-links{display:flex;gap:18px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase}
+  .footer-links a{color:var(--ink-dim)}
+  .footer-links a:hover{color:var(--gold-1)}
+  .footer-meta{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.15em;color:var(--ink-dim);text-transform:uppercase}
+  .footer-legal{max-width:960px;margin:20px auto 0;font-size:14px;color:var(--ink-dim);font-style:italic;line-height:1.5;padding:0 28px;text-align:center}
+
+  @media (max-width:720px){html,body{font-size:18px}main{padding:36px 20px 60px}.page-title{font-size:36px}.page-subtitle{font-size:19px}.build-title{font-size:24px}.version-grid{grid-template-columns:1fr}.site-footer-inner{flex-direction:column;text-align:center}}
+  @media (max-width:420px){.page-title{font-size:30px}}
+</style>
+</head>
+<body>
+
+<header class="site-nav">
+  <input type="checkbox" id="nav-toggle-cb" />
+  <div class="site-nav-inner">
+    <a href="/" class="site-nav-brand" aria-label="Home">
+      <svg class="mp-logo" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs><linearGradient id="mp-nav-g-b" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#D4B574"/><stop offset="100%" stop-color="#8C7A4F"/></linearGradient></defs>
+        <path fill="url(#mp-nav-g-b)" d="M 4 32 L 4 8 L 7 8 L 13.5 25 L 20 8 L 23 8 L 23 32 L 20.5 32 L 20.5 13 L 14.3 29 L 12.7 29 L 6.5 13 L 6.5 32 Z"/>
+        <path fill="url(#mp-nav-g-b)" d="M 3 31.5 L 8 31.5 L 8 32.8 L 3 32.8 Z"/>
+        <path fill="url(#mp-nav-g-b)" d="M 19 31.5 L 24 31.5 L 24 32.8 L 19 32.8 Z"/>
+        <path fill="url(#mp-nav-g-b)" d="M 21 10 L 21 32 L 23.8 32 L 23.8 23 L 29 23 Q 36 23 36 16.5 Q 36 10 29 10 Z M 23.8 12.3 L 28.7 12.3 Q 33.3 12.3 33.3 16.5 Q 33.3 20.7 28.7 20.7 L 23.8 20.7 Z"/>
+        <path fill="url(#mp-nav-g-b)" d="M 20 9.5 L 25 9.5 L 25 10.8 L 20 10.8 Z"/>
+      </svg>
+      <span class="brand-name">Micah Price</span>
+    </a>
+    <label for="nav-toggle-cb" class="nav-toggle" aria-label="Toggle navigation">☰</label>
+    <nav class="site-nav-links" aria-label="Main navigation">
+      <a href="/">Home</a><a href="/tool">Tool</a><a href="/examples">Examples</a>
+      <a href="/build-details" aria-current="page">Build Details</a>
+      <a href="/about">About</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <header class="page-header">
+    <div class="page-kicker">§ Build Details</div>
+    <h1 class="page-title">How This Was Built</h1>
+    <p class="page-subtitle">A look under the hood — the architecture, the prompt engineering, the tradeoffs, the testing protocol.</p>
+  </header>
+
+  <section class="build-section">
+    <div class="build-num">§ 01 — Architecture</div>
+    <h2 class="build-title">A full-stack application with a curated knowledge base.</h2>
+    <div class="build-body">
+      <p>The tool is a single-page web application hosted on Vercel. The frontend is vanilla HTML, CSS, and JavaScript — no frameworks, no build step. The backend is a Node.js serverless function that receives the submitted memo, loads the six knowledge files, and calls the Anthropic Claude API with a production-hardened system prompt. The structured XML response is parsed and rendered into visual sections.</p>
+    </div>
+    <div class="stack-grid">
+      <div class="stack-card"><span class="stack-label">Frontend</span><div class="stack-value">Single-file HTML + vanilla JS</div></div>
+      <div class="stack-card"><span class="stack-label">Backend</span><div class="stack-value">Vercel serverless (Node)</div></div>
+      <div class="stack-card"><span class="stack-label">Model</span><div class="stack-value">Claude Sonnet / Haiku</div></div>
+      <div class="stack-card"><span class="stack-label">Knowledge</span><div class="stack-value">Six curated markdown files</div></div>
+      <div class="stack-card"><span class="stack-label">Caching</span><div class="stack-value">Prompt cache · 90% discount</div></div>
+      <div class="stack-card"><span class="stack-label">Hosting</span><div class="stack-value">Vercel free tier</div></div>
+    </div>
+  </section>
+
+  <section class="build-section">
+    <div class="build-num">§ 02 — Prompt Engineering Stack</div>
+    <h2 class="build-title">Ten proven techniques, applied across every prompt.</h2>
+    <div class="build-body">
+      <p>The system prompt governing the tool is built on a deliberate stack of ten prompt engineering techniques. Each one prevents a specific failure mode — hallucination, over-flagging, generic critique, sycophancy, response bloat. The production prompt combines seven of the ten in a single instruction set.</p>
+    </div>
+    <div class="pill-row">
+      <span class="pill">role priming</span>
+      <span class="pill">xml delimiters</span>
+      <span class="pill">output schemas</span>
+      <span class="pill">few-shot examples</span>
+      <span class="pill">chain-of-thought</span>
+      <span class="pill">negative constraints</span>
+      <span class="pill">self-critique loops</span>
+      <span class="pill">confidence calibration</span>
+      <span class="pill">length caps</span>
+      <span class="pill">refusal anchors</span>
+    </div>
+    <div class="build-body">
+      <p>The most important of these for this tool are <em>refusal anchors</em> and <em>confidence calibration</em> — these are what prevent the tool from making up market data or giving you the "yes this is a great deal" response that undermines stress-testing. Every time the tool doesn't know a specific number, it says so and points to a verifiable source instead of guessing.</p>
+    </div>
+  </section>
+
+  <section class="build-section">
+    <div class="build-num">§ 03 — Three-Version Iteration</div>
+    <h2 class="build-title">The system prompt was rebuilt twice.</h2>
+    <div class="build-body">
+      <p>The production version (v3) is the result of two visible iteration steps. Each version was tested against the same four test cases to measure the improvement.</p>
+    </div>
+    <div class="version-grid">
+      <div class="version-card">
+        <div class="version-label">Version 01</div>
+        <h4>Baseline</h4>
+        <p>Role priming only. No knowledge files. Generic critique with frequent hallucination. Deliberately weak to establish a measurable starting point.</p>
+      </div>
+      <div class="version-card">
+        <div class="version-label">Version 02</div>
+        <h4>Knowledge Files</h4>
+        <p>Added the six curated knowledge files. Added a structured intake. Added negative constraints on marketing language. Material improvement in citation discipline.</p>
+      </div>
+      <div class="version-card">
+        <div class="version-label">Version 03</div>
+        <h4>Production</h4>
+        <p>Seven explicit rules, mandatory XML output schema, refusal anchors, chain-of-thought preamble, mandatory disclaimer. This is the version running in production.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="build-section">
+    <div class="build-num">§ 04 — Model Selection &amp; Cost</div>
+    <h2 class="build-title">Sonnet 4.6 vs. Haiku 4.5 — a real engineering tradeoff.</h2>
+    <div class="build-body">
+      <p>I benchmarked Claude Sonnet 4.6 against Claude Haiku 4.5 across the four-persona test set. Sonnet catches roughly 90% of embedded red flags; Haiku catches about 70% but responds in under 10 seconds. For the demo-heavy workload of a portfolio tool, Haiku's speed is the right tradeoff.</p>
+      <p>Prompt caching on the knowledge base means every call after the first gets a <strong>90% discount on input tokens</strong>, because the six knowledge files are static across calls. The effective per-analysis cost is under two cents.</p>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="stat-value">~$0.015</div><div class="stat-label">Cost / cached call</div></div>
+      <div class="stat-card"><div class="stat-value">~12K</div><div class="stat-label">Input tokens / call</div></div>
+      <div class="stat-card"><div class="stat-value">25</div><div class="stat-label">Named red flags</div></div>
+      <div class="stat-card"><div class="stat-value">10/hr</div><div class="stat-label">Rate limit / IP</div></div>
+    </div>
+  </section>
+
+  <section class="build-section">
+    <div class="build-num">§ 05 — The Knowledge Base</div>
+    <h2 class="build-title">Six curated files, roughly 10,000 tokens of grounded reference.</h2>
+    <div class="build-body">
+      <p>The knowledge base was assembled from public industry sources — CBRE Research, NAREIT T-Tracker, NCREIF, Green Street Advisors, NAIOP, and Adventures in CRE. Every numeric range in the files is flagged with a [VERIFY] tag and was sanity-checked against the published data before upload.</p>
+    </div>
+    <ol class="kf-list">
+      <li><strong>Fundamentals Reference</strong> — pro forma structure, core return metrics, investment strategy definitions, capital stack basics.</li>
+      <li><strong>Red Flag Catalog</strong> — 25 named patterns across five categories: revenue, expense, cap rate &amp; exit, debt &amp; capital structure, structural &amp; market.</li>
+      <li><strong>Asset Class Market Ranges</strong> — institutional underwriting ranges by asset class (multifamily, office, industrial, retail, hospitality).</li>
+      <li><strong>Sensitivity Framework</strong> — the hierarchy of assumption sensitivity and how to communicate fragility quantitatively.</li>
+      <li><strong>Sample Annotated Memos</strong> — one defensible memo and one weak memo, with red flags cited by name.</li>
+      <li><strong>Cap Rate &amp; Cycle Reference</strong> — historical cap rate context and the Treasury-yield relationship.</li>
+    </ol>
+  </section>
+
+  <section class="build-section">
+    <div class="build-num">§ 06 — Testing Protocol</div>
+    <h2 class="build-title">Four test cases, five scoring dimensions, one control.</h2>
+    <div class="build-body">
+      <p>Four test personas were constructed with known answer keys — each a fictional but realistic deal memo with a specific number of embedded red flags. The tool was scored on five dimensions: red flag detection, citation discipline, fragility analysis, no-hallucination compliance, and analytical depth.</p>
+      <p><strong>Persona C is a deliberate control case.</strong> It contains only four minor concerns, and the deal is mostly defensible. The test isn't just "can the tool catch red flags?" — it's also "can the tool recognize when there aren't any?" A tool that flags everything is as useless as one that flags nothing. This matters more than it sounds.</p>
+    </div>
+  </section>
+
+  <section class="build-section">
+    <div class="build-num">§ 07 — Honest Limitations</div>
+    <h2 class="build-title">What this tool can't do.</h2>
+    <div class="limitation-box">
+      <h4>Limitations</h4>
+      <p>The tool cannot verify claims in the pitch document — if a memo says rent grew 5% last year, the tool cannot check whether that happened. It flags assumptions that look unrealistic against industry norms. The tool does not have live market data, so it refuses to quote current cap rates or loan spreads. It is not a substitute for due diligence. It is not investment advice. The quality of its critique is limited by the quality of the submitted memo.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="footer-brand">
+      <svg class="mp-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill="#D4B574" d="M 7 51 L 7 13 L 12 13 L 22 40 L 32 13 L 37 13 L 37 51 L 33 51 L 33 22 L 23 47 L 21 47 L 11 22 L 11 51 Z"/>
+        <path fill="#D4B574" d="M 34 16 L 34 51 L 38.5 51 L 38.5 37 L 47 37 Q 58 37 58 26.5 Q 58 16 47 16 Z M 38.5 19.5 L 46.5 19.5 Q 53.5 19.5 53.5 26.5 Q 53.5 33.5 46.5 33.5 L 38.5 33.5 Z"/>
+      </svg>
+      Micah Price · BCOR 2205
+    </div>
+    <div class="footer-links">
+      <a href="/">Home</a><a href="/tool">Tool</a><a href="/examples">Examples</a>
+      <a href="/build-details">Build</a><a href="/about">About</a>
+    </div>
+    <div class="footer-meta">Built with Claude · <a href="https://github.com/MpLLC303/Cre-Stress-Tester">Source</a></div>
+  </div>
+  <div class="footer-legal">Not investment advice. Do not paste confidential materials.</div>
+</footer>
+
+</body>
+</html>
