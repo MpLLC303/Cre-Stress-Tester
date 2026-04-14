@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Deal Memo Stress Tester · Examples</title>
+<meta name="description" content="Three real critiques across three different deal types — so you can see what the tool produces before running your own." />
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Syne:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#07060A;--panel:#0E0C14;--panel-2:#13111B;--ink:#F4F1E8;--ink-strong:#FFFCF4;--ink-dim:#B8B1A0;--rule:#2A2533;--gold-1:#D4B574;--gold-2:#C9A86A;--gold-3:#8C7A4F;--ok:#86C995;--warn:#E3B765;--err:#E89090;--blue:#85BDDE;--nav-h:68px}
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--ink);font-family:'Cormorant Garamond',Georgia,serif;font-size:19px;font-weight:500;line-height:1.65;-webkit-font-smoothing:antialiased}
+  body{background:radial-gradient(ellipse at top,#0F0C18 0%,#07060A 60%) no-repeat;min-height:100vh}
+  a{color:var(--gold-1);text-decoration:none;transition:color 0.15s}
+  a:hover{color:var(--gold-2)}
+
+  .site-nav{position:sticky;top:0;z-index:50;background:rgba(7,6,10,0.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule);height:var(--nav-h);display:flex;align-items:center}
+  .site-nav-inner{max-width:1100px;width:100%;margin:0 auto;padding:0 28px;display:flex;align-items:center;justify-content:space-between}
+  .site-nav-brand{display:flex;align-items:center;gap:12px;text-decoration:none}
+  .site-nav-brand .mp-logo{width:34px;height:34px;flex-shrink:0}
+  .site-nav-brand .brand-name{font-family:'Syne',sans-serif;font-weight:700;font-size:15px;color:var(--ink-strong)}
+  .site-nav-brand:hover .brand-name{color:var(--gold-1)}
+  .site-nav-links{display:flex;gap:4px}
+  .site-nav-links a{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.2em;text-transform:uppercase;color:var(--ink-dim);padding:10px 14px;border-radius:2px;position:relative}
+  .site-nav-links a:hover{color:var(--gold-1)}
+  .site-nav-links a[aria-current="page"]{color:var(--gold-1)}
+  .site-nav-links a[aria-current="page"]::after{content:"";position:absolute;bottom:3px;left:14px;right:14px;height:2px;background:linear-gradient(90deg,var(--gold-1),var(--gold-3))}
+  .nav-toggle{display:none;background:transparent;border:1px solid var(--rule);color:var(--gold-1);width:44px;height:44px;border-radius:2px;cursor:pointer;font-size:18px;align-items:center;justify-content:center}
+  @media (max-width:840px){.site-nav-links{display:none;position:absolute;top:var(--nav-h);left:0;right:0;flex-direction:column;background:rgba(7,6,10,0.98);backdrop-filter:blur(12px);border-bottom:1px solid var(--rule);padding:12px}.site-nav-links a{padding:14px 16px}.nav-toggle{display:inline-flex}#nav-toggle-cb:checked ~ .site-nav-inner .site-nav-links{display:flex}}
+  #nav-toggle-cb{display:none}
+
+  main{max-width:960px;margin:0 auto;padding:48px 28px 80px}
+  .page-header{padding-bottom:32px;margin-bottom:44px;border-bottom:1px solid var(--rule)}
+  .page-kicker{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.3em;color:var(--gold-2);text-transform:uppercase;margin-bottom:14px}
+  .page-title{font-family:'Syne',sans-serif;font-weight:700;font-size:52px;line-height:1.05;letter-spacing:-0.02em;margin:0 0 16px;background:linear-gradient(135deg,#FFF5D5 0%,#D4B574 50%,#8C7A4F 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .page-subtitle{font-style:italic;font-size:22px;color:var(--ink);margin:0;max-width:56ch;line-height:1.45;font-weight:500}
+
+  .example{background:var(--panel);border:1px solid var(--rule);border-radius:3px;padding:34px 36px;margin-bottom:28px;position:relative;overflow:hidden}
+  .example::before{content:"";position:absolute;top:0;left:0;width:3px;height:100%;background:linear-gradient(180deg,var(--gold-1),transparent)}
+  .example-tag{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.22em;color:var(--gold-2);text-transform:uppercase;margin-bottom:12px}
+  .example-title{font-family:'Syne',sans-serif;font-weight:700;font-size:28px;line-height:1.15;color:var(--ink-strong);margin:0 0 16px}
+  .example-intro{font-size:18px;color:var(--ink);line-height:1.6;margin:0 0 22px;font-weight:500}
+  .example-subhead{font-family:'Syne',sans-serif;font-weight:700;font-size:13px;letter-spacing:0.15em;color:var(--gold-1);text-transform:uppercase;margin:26px 0 10px}
+  .example-subhead:first-of-type{margin-top:0}
+
+  .input-box{background:var(--panel-2);border:1px solid var(--rule);border-radius:2px;padding:18px 22px;margin:12px 0 20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.65;color:var(--ink);white-space:pre-wrap}
+
+  .flag-card{background:rgba(232,144,144,0.06);border-left:3px solid var(--err);padding:14px 18px;margin:12px 0;border-radius:2px}
+  .flag-card .flag-name{font-family:'Syne',sans-serif;font-weight:700;color:var(--err);font-size:15px;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em}
+  .flag-card p{margin:4px 0;font-size:17px;color:var(--ink);line-height:1.55}
+
+  .pressure-card{background:rgba(227,183,101,0.05);border-left:3px solid var(--warn);padding:14px 18px;margin:12px 0;border-radius:2px}
+  .pressure-card .pressure-name{font-family:'Syne',sans-serif;font-weight:700;color:var(--warn);font-size:15px;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em}
+  .pressure-card p{margin:4px 0;font-size:17px;color:var(--ink);line-height:1.55}
+
+  .takeaway{background:rgba(133,189,222,0.05);border:1px solid rgba(133,189,222,0.25);border-left:3px solid var(--blue);padding:16px 22px;margin-top:22px;border-radius:2px;font-size:17px;color:var(--ink);line-height:1.55;font-weight:500}
+  .takeaway strong{color:var(--blue);font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:0.2em;text-transform:uppercase;display:block;margin-bottom:6px;font-weight:600}
+
+  .control-note{background:linear-gradient(180deg,rgba(201,168,106,0.1),transparent);border:1px solid rgba(201,168,106,0.3);border-left:3px solid var(--gold-1);padding:18px 24px;margin:18px 0;border-radius:2px;font-size:17px;color:var(--ink);line-height:1.55;font-style:italic;font-weight:500}
+
+  .cta-block{text-align:center;margin-top:56px;padding:40px 32px;background:linear-gradient(135deg,rgba(212,181,116,0.08),rgba(140,122,79,0.04));border:1px solid rgba(201,168,106,0.3);border-radius:3px}
+  .cta-block h3{font-family:'Syne',sans-serif;font-weight:700;font-size:28px;margin:0 0 14px;color:var(--ink-strong)}
+  .cta-block p{font-size:18px;color:var(--ink);margin:0 0 24px;font-style:italic;font-weight:500}
+  .cta{display:inline-block;padding:15px 32px;border-radius:2px;font-family:'Syne',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.12em;text-transform:uppercase;text-decoration:none;background:linear-gradient(135deg,var(--gold-1),var(--gold-3));color:#07060A;box-shadow:0 2px 12px rgba(201,168,106,0.25);transition:all 0.15s}
+  .cta:hover{box-shadow:0 4px 20px rgba(201,168,106,0.45);transform:translateY(-1px);color:#07060A}
+
+  .site-footer{margin-top:100px;padding:32px 28px;border-top:1px solid var(--rule)}
+  .site-footer-inner{max-width:1100px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:20px;flex-wrap:wrap}
+  .footer-brand{display:flex;align-items:center;gap:10px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:500;letter-spacing:0.1em;color:var(--ink-dim);text-transform:uppercase}
+  .footer-brand .mp-logo{width:22px;height:22px}
+  .footer-links{display:flex;gap:18px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.15em;text-transform:uppercase}
+  .footer-links a{color:var(--ink-dim)}
+  .footer-links a:hover{color:var(--gold-1)}
+  .footer-meta{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;letter-spacing:0.15em;color:var(--ink-dim);text-transform:uppercase}
+  .footer-legal{max-width:960px;margin:20px auto 0;font-size:14px;color:var(--ink-dim);font-style:italic;line-height:1.5;padding:0 28px;text-align:center}
+
+  @media (max-width:720px){html,body{font-size:18px}main{padding:36px 20px 60px}.page-title{font-size:36px}.page-subtitle{font-size:19px}.example{padding:26px 22px}.example-title{font-size:22px}.site-footer-inner{flex-direction:column;text-align:center}}
+  @media (max-width:420px){.page-title{font-size:30px}}
+</style>
+</head>
+<body>
+
+<header class="site-nav">
+  <input type="checkbox" id="nav-toggle-cb" />
+  <div class="site-nav-inner">
+    <a href="/" class="site-nav-brand" aria-label="Home">
+      <svg class="mp-logo" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs><linearGradient id="mp-nav-g-e" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#D4B574"/><stop offset="100%" stop-color="#8C7A4F"/></linearGradient></defs>
+        <path fill="url(#mp-nav-g-e)" d="M 4 32 L 4 8 L 7 8 L 13.5 25 L 20 8 L 23 8 L 23 32 L 20.5 32 L 20.5 13 L 14.3 29 L 12.7 29 L 6.5 13 L 6.5 32 Z"/>
+        <path fill="url(#mp-nav-g-e)" d="M 3 31.5 L 8 31.5 L 8 32.8 L 3 32.8 Z"/>
+        <path fill="url(#mp-nav-g-e)" d="M 19 31.5 L 24 31.5 L 24 32.8 L 19 32.8 Z"/>
+        <path fill="url(#mp-nav-g-e)" d="M 21 10 L 21 32 L 23.8 32 L 23.8 23 L 29 23 Q 36 23 36 16.5 Q 36 10 29 10 Z M 23.8 12.3 L 28.7 12.3 Q 33.3 12.3 33.3 16.5 Q 33.3 20.7 28.7 20.7 L 23.8 20.7 Z"/>
+        <path fill="url(#mp-nav-g-e)" d="M 20 9.5 L 25 9.5 L 25 10.8 L 20 10.8 Z"/>
+      </svg>
+      <span class="brand-name">Micah Price</span>
+    </a>
+    <label for="nav-toggle-cb" class="nav-toggle" aria-label="Toggle navigation">☰</label>
+    <nav class="site-nav-links" aria-label="Main navigation">
+      <a href="/">Home</a><a href="/tool">Tool</a>
+      <a href="/examples" aria-current="page">Examples</a>
+      <a href="/build-details">Build Details</a><a href="/about">About</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <header class="page-header">
+    <div class="page-kicker">§ Examples</div>
+    <h1 class="page-title">See the Tool in Action</h1>
+    <p class="page-subtitle">Three real critiques, three different deal types — so you can see what the output actually looks like before you run your own.</p>
+  </header>
+
+  <article class="example">
+    <div class="example-tag">Example 01 · Aggressive · Multifamily</div>
+    <h2 class="example-title">Value-Add Apartment Deal in Phoenix</h2>
+    <p class="example-intro">A 284-unit garden-style apartment complex built in 1986. The sponsor is raising money to buy it, renovate the interiors, and sell in five years. The pitch projects 18.2% returns. The tool flagged seven assumptions that make the deal more fragile than the pitch suggests.</p>
+
+    <div class="example-subhead">What the tool caught</div>
+
+    <div class="flag-card">
+      <div class="flag-name">Unrealistic Rent Growth</div>
+      <p>The pitch assumes rents will grow 5.75% every year for five years. Historical averages for this submarket run around 3%. Sustaining 5.75% requires the market to outperform its long-run average by 275 basis points annually.</p>
+    </div>
+
+    <div class="flag-card">
+      <div class="flag-name">Exit Cap Compression</div>
+      <p>The pitch assumes the building will sell at a tighter valuation than it was bought at — a bet that interest rates fall or the building improves relative to its peers. A flat exit cap reduces projected returns from 18.2% to roughly 13–14%.</p>
+    </div>
+
+    <div class="flag-card">
+      <div class="flag-name">Interest-Only Loan Masks Refinance Risk</div>
+      <p>The loan requires interest-only payments for all five years. This inflates year-one cash flow but leaves no principal paid down at sale. If interest rates are higher at exit, the refinance math breaks.</p>
+    </div>
+
+    <div class="flag-card">
+      <div class="flag-name">Operating Expense Growth Understated</div>
+      <p>The pitch models expenses growing 1.5% annually. Real inflation for property operations — especially insurance and maintenance — typically runs 3–4%. The gap compounds into $130–200K of understated annual expenses by year five.</p>
+    </div>
+
+    <div class="takeaway">
+      <strong>Why this matters</strong>
+      This pitch isn't fraudulent — it's optimistic. Each assumption, individually, is defensible on its most charitable reading. Stacked together, they inflate projected returns by 400–500 basis points. An experienced analyst would walk into committee and ask for downside cases on every number.
+    </div>
+  </article>
+
+  <article class="example">
+    <div class="example-tag">Example 02 · Control Case · Industrial</div>
+    <h2 class="example-title">Modern Logistics Facility in the Inland Empire</h2>
+    <p class="example-intro">A 445,000 square foot warehouse built in 2019, currently 85% leased to two tenants. The pitch projects a 12.3% return over seven years. Most of the underwriting is defensible — but four minor items deserve pressure-testing.</p>
+
+    <div class="control-note">
+      The tool is designed to recognize when a deal is sound. Over-flagging a defensible deal is just as bad as missing real red flags. The four items below are framed as pressure-tests, not kill criteria.
+    </div>
+
+    <div class="example-subhead">Minor items worth pressure-testing</div>
+
+    <div class="pressure-card">
+      <div class="pressure-name">Comp Set Leans on 2021 Trades</div>
+      <p>The comparable sales cited in the pitch all traded in 2021–2022, when cap rates were historically tight. Recalculating exit valuation against more recent trades would give a more conservative estimate.</p>
+    </div>
+
+    <div class="pressure-card">
+      <div class="pressure-name">Rent Growth at the Top of Market Range</div>
+      <p>4.5% annual rent growth is at the upper bound of defensible — the memo acknowledges this. Worth running a downside case at 3% to understand sensitivity.</p>
+    </div>
+
+    <div class="pressure-card">
+      <div class="pressure-name">Replacement Reserves Slightly Thin</div>
+      <p>$0.10 per square foot is below the typical institutional range of $0.15–$0.20. Not a deal-breaker — worth confirming against the lender's requirement.</p>
+    </div>
+
+    <div class="takeaway">
+      <strong>Why this matters</strong>
+      A tool that flags everything as a red flag is just noise. This deal is mostly solid. The pressure-tests let you interrogate the specific spots where reasonable people could disagree — which is how good due diligence actually works.
+    </div>
+  </article>
+
+  <article class="example">
+    <div class="example-tag">Example 03 · Sector Headwinds · Office</div>
+    <h2 class="example-title">Trophy Office Tower in Midtown Manhattan</h2>
+    <p class="example-intro">A 680,000 square foot Class A office building in Midtown East, being acquired at a 31% discount to its 2019 appraised value. The pitch frames this as a defensive entry basis. The tool identified structural risks the basis discount does not offset.</p>
+
+    <div class="example-subhead">What the tool caught</div>
+
+    <div class="flag-card">
+      <div class="flag-name">Lease Rollover Concentration</div>
+      <p>38% of the building's leases expire in years 4–6 of the hold period — including a single 125,000 square foot technology tenant in year 5. If that tenant downsizes or leaves, the building's projected cash flow breaks.</p>
+    </div>
+
+    <div class="flag-card">
+      <div class="flag-name">Concessions Treated as Temporary</div>
+      <p>Recent leases include multiple years of free rent. The pitch assumes these concessions burn off by year three and rents reset to stated contract levels. In today's office market, concessions are persistent — this optimism inflates projected income on 27% of the building.</p>
+    </div>
+
+    <div class="flag-card">
+      <div class="flag-name">Exit Valuation Depends on Rates Falling</div>
+      <p>The pitch ties its exit valuation to a specific forecast of interest rates declining by year 10. If rates hold at current levels, exit proceeds fall 10–20% — turning a target-return deal into a below-target outcome.</p>
+    </div>
+
+    <div class="takeaway">
+      <strong>Why this matters</strong>
+      Office is the hardest asset class to underwrite right now. A basis discount — even a significant one — only helps if the underlying assumptions are sound. This pitch stacks multiple sector-specific risks that compound with each other. The tool's job isn't to say the deal is bad; it's to make the risks explicit so you can decide.
+    </div>
+  </article>
+
+  <section class="cta-block">
+    <h3>Try it on your own document.</h3>
+    <p>You've seen three critiques. Now run yours.</p>
+    <a href="/tool" class="cta">Open the Tool</a>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="site-footer-inner">
+    <div class="footer-brand">
+      <svg class="mp-logo" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path fill="#D4B574" d="M 7 51 L 7 13 L 12 13 L 22 40 L 32 13 L 37 13 L 37 51 L 33 51 L 33 22 L 23 47 L 21 47 L 11 22 L 11 51 Z"/>
+        <path fill="#D4B574" d="M 34 16 L 34 51 L 38.5 51 L 38.5 37 L 47 37 Q 58 37 58 26.5 Q 58 16 47 16 Z M 38.5 19.5 L 46.5 19.5 Q 53.5 19.5 53.5 26.5 Q 53.5 33.5 46.5 33.5 L 38.5 33.5 Z"/>
+      </svg>
+      Micah Price · BCOR 2205
+    </div>
+    <div class="footer-links">
+      <a href="/">Home</a><a href="/tool">Tool</a><a href="/examples">Examples</a>
+      <a href="/build-details">Build</a><a href="/about">About</a>
+    </div>
+    <div class="footer-meta">Built with Claude · <a href="https://github.com/MpLLC303/Cre-Stress-Tester">Source</a></div>
+  </div>
+  <div class="footer-legal">Not investment advice. Do not paste confidential materials.</div>
+</footer>
+
+</body>
+</html>
