@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+logs/*.log
+logs/launchd.*.log
+data/scratch_insider_*.xlsx
+data/insider_fallback.html
+data/game_pages/*.html
+data/game_pages/*.meta.json

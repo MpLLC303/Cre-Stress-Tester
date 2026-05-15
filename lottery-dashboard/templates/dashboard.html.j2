@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Colorado Lottery Scratch Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=Syne:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #07060A;
+    --bg-2: #0e0d14;
+    --panel: rgba(20, 18, 28, 0.72);
+    --panel-border: rgba(212, 175, 55, 0.18);
+    --fg: #e6e3da;
+    --muted: #8a8597;
+    --gold-grad: linear-gradient(135deg, #d4af37, #f4e29c, #b8860b);
+    --gold: #d4af37;
+    --gold-soft: #f4e29c;
+    --accent: #b8860b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: 'Syne', system-ui, sans-serif; }
+  body { min-height: 100vh; padding-bottom: 80px; }
+  h1, h2, h3, .display { font-family: 'Cormorant Garamond', Georgia, serif; font-weight: 700; letter-spacing: 0.5px; }
+  code, .mono, .num { font-family: 'JetBrains Mono', monospace; }
+  a { color: var(--gold-soft); }
+  .gold-text {
+    background: var(--gold-grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    background: rgba(7, 6, 10, 0.65);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 14px 28px;
+    display: flex; justify-content: space-between; align-items: center; gap: 24px;
+  }
+  .nav .brand { font-family: 'Cormorant Garamond', serif; font-size: 22px; letter-spacing: 1px; }
+  .nav .meta { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); }
+  .container { max-width: 1400px; margin: 0 auto; padding: 28px; }
+  header.hero { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: end; margin-bottom: 28px; }
+  header.hero h1 { font-size: 56px; margin: 0 0 8px; line-height: 1.05; }
+  header.hero .sub { color: var(--muted); font-size: 14px; }
+  .callout {
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    padding: 16px 20px;
+    border-radius: 12px;
+    min-width: 280px;
+  }
+  .callout .label { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); }
+  .callout .game { font-family: 'Cormorant Garamond', serif; font-size: 24px; margin: 6px 0 2px; }
+  .callout .score { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--gold-soft); }
+  .filter-bar {
+    border: 1px solid var(--panel-border);
+    background: var(--panel);
+    padding: 18px 22px;
+    border-radius: 12px;
+    display: flex; flex-wrap: wrap; gap: 24px; align-items: center;
+    margin-bottom: 24px;
+  }
+  .filter-bar fieldset { border: 0; padding: 0; margin: 0; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .filter-bar legend { font-size: 11px; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-right: 8px; }
+  .filter-bar label { font-size: 13px; color: var(--fg); display: inline-flex; gap: 6px; align-items: center; }
+  .filter-bar input[type="range"] { accent-color: var(--gold); width: 140px; }
+  .filter-bar input[type="checkbox"] { accent-color: var(--gold); }
+  .filter-bar .val { font-family: 'JetBrains Mono', monospace; color: var(--gold-soft); min-width: 36px; display: inline-block; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-bottom: 28px; }
+  .card { border: 1px solid var(--panel-border); background: var(--panel); border-radius: 12px; padding: 18px; }
+  .card h3 { margin: 0 0 12px; font-size: 18px; }
+  .card .row { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; border-bottom: 1px dashed rgba(255,255,255,0.05); }
+  .card .row:last-child { border-bottom: 0; }
+  .card .row .k { color: var(--muted); }
+  .card .row .v { font-family: 'JetBrains Mono', monospace; color: var(--gold-soft); }
+  .card .big { font-family: 'Cormorant Garamond', serif; font-size: 36px; }
+  table.games { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--panel-border); border-radius: 12px; overflow: hidden; }
+  table.games thead th {
+    text-align: left; padding: 12px 14px; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
+    color: var(--muted); cursor: pointer; user-select: none; background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--panel-border);
+  }
+  table.games thead th .arrow { display: inline-block; width: 10px; color: var(--gold); }
+  table.games tbody td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  table.games tbody tr.row-main { cursor: pointer; }
+  table.games tbody tr.row-main:hover { background: rgba(212, 175, 55, 0.05); }
+  table.games tbody tr.row-detail td { padding: 0; background: var(--bg-2); }
+  .detail-pad { padding: 18px 22px; display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+  .tier-table { width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .tier-table th, .tier-table td { padding: 5px 8px; text-align: right; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .tier-table th:first-child, .tier-table td:first-child { text-align: left; }
+  .tier-table th { color: var(--muted); font-weight: 600; }
+  .detail-side .meta-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; }
+  .detail-side .meta-row .k { color: var(--muted); }
+  .detail-side a.btn {
+    display: inline-block; margin-top: 10px; padding: 8px 14px; font-size: 12px; letter-spacing: 1px;
+    background: var(--gold-grad); color: #07060A; border-radius: 6px; text-decoration: none; font-weight: 600;
+  }
+  .price-pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-family: 'JetBrains Mono', monospace; font-size: 11px; border: 1px solid var(--panel-border); }
+  .badge-warn { background: rgba(255, 90, 90, 0.12); color: #ff9a9a; border: 1px solid rgba(255,90,90,0.3); padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; }
+  .badge-fresh { background: rgba(120, 220, 140, 0.12); color: #a7e8b5; border: 1px solid rgba(120,220,140,0.25); padding: 1px 6px; border-radius: 4px; font-size: 10px; margin-left: 6px; }
+  .charts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 28px 0; }
+  .chart-card { border: 1px solid var(--panel-border); background: var(--panel); border-radius: 12px; padding: 18px; }
+  .chart-card h3 { margin: 0 0 12px; font-size: 18px; }
+  .chart-card.wide { grid-column: span 2; }
+  footer { color: var(--muted); font-size: 12px; margin-top: 40px; border-top: 1px solid var(--panel-border); padding-top: 20px; }
+  footer table { width: 100%; border-collapse: collapse; margin-top: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; }
+  footer th, footer td { text-align: left; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+  .alert {
+    background: rgba(212, 175, 55, 0.08);
+    border: 1px solid rgba(212, 175, 55, 0.35);
+    padding: 12px 16px; border-radius: 8px;
+    margin-bottom: 20px; font-size: 13px;
+  }
+  @media print {
+    html, body { background: #ffffff !important; color: #111 !important; }
+    .gold-text { -webkit-text-fill-color: #8a6d10; color: #8a6d10; background: none; }
+    .nav, .filter-bar, .charts { display: none !important; }
+    .card, table.games, .chart-card, .callout { background: #ffffff !important; border-color: #ccc !important; }
+    table.games tbody td, table.games thead th { color: #111 !important; }
+    a { color: #6a4a08; }
+  }
+  @media (max-width: 960px) {
+    .cards { grid-template-columns: 1fr; }
+    .charts { grid-template-columns: 1fr; }
+    .detail-pad { grid-template-columns: 1fr; }
+    header.hero { grid-template-columns: 1fr; }
+    header.hero h1 { font-size: 40px; }
+  }
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="brand"><span class="gold-text">Colorado Lottery</span> Scratch Insider</div>
+  <div class="meta">refreshed {{ generated_at }} &middot; {{ summary.active_games }} active games &middot; source: {{ source }}</div>
+</nav>
+
+<div class="container">
+  {% if fallback_note %}
+  <div class="alert">► Data source note: {{ fallback_note }}</div>
+  {% endif %}
+
+  <header class="hero">
+    <div>
+      <h1><span class="gold-text">Best bets right now</span></h1>
+      <div class="sub">EV-ranked scratch tickets, refreshed daily. Sort, filter, expand any row for the full prize-tier breakdown.</div>
+    </div>
+    {% if summary.top3_by_ev %}
+    <div class="callout">
+      <div class="label">► Top EV pick</div>
+      <div class="game">{{ summary.top3_by_ev[0].game_name }}</div>
+      <div class="score">#{{ summary.top3_by_ev[0].game_number }} &middot; ${{ '%g' % summary.top3_by_ev[0].ticket_price }} &middot; EV {{ '%.3f' % summary.top3_by_ev[0].ev_score }}</div>
+    </div>
+    {% endif %}
+  </header>
+
+  <section class="filter-bar" id="filter-bar">
+    <fieldset>
+      <legend>Denomination</legend>
+      {% for p in [1, 2, 3, 5, 10, 20, 50] %}
+      <label><input type="checkbox" class="denom" value="{{ p }}" checked> ${{ p }}</label>
+      {% endfor %}
+    </fieldset>
+    <fieldset>
+      <legend>Min payout %</legend>
+      <input type="range" id="min-payout" min="0" max="90" value="0" step="1">
+      <span class="val" id="min-payout-val">0%</span>
+    </fieldset>
+    <fieldset>
+      <legend>Min % top prizes remaining</legend>
+      <input type="range" id="min-top" min="0" max="100" value="0" step="1">
+      <span class="val" id="min-top-val">0%</span>
+    </fieldset>
+    <fieldset>
+      <legend>Soon-expiring</legend>
+      <label><input type="checkbox" id="hide-expiring"> Hide if &lt; 90 days to claim</label>
+    </fieldset>
+  </section>
+
+  <section class="cards">
+    <div class="card">
+      <h3>► Average payout by denomination</h3>
+      {% for denom, info in summary.by_denomination.items() %}
+        <div class="row"><span class="k">{{ denom }} <span class="mono" style="color:var(--muted)">({{ info.count }})</span></span><span class="v">{{ '%.1f%%' % (info.avg_payout * 100) if info.avg_payout is not none else 'n/a' }}</span></div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>► Top 3 by EV score</h3>
+      {% for g in summary.top3_by_ev %}
+        <div class="row"><span class="k">#{{ g.game_number }} {{ g.game_name }}</span><span class="v">{{ '%.3f' % g.ev_score }}</span></div>
+      {% endfor %}
+    </div>
+    <div class="card">
+      <h3>► Statewide remaining pool</h3>
+      <div class="big gold-text">${{ '{:,.0f}'.format(summary.total_remaining_prize_pool) }}</div>
+      <div class="row"><span class="k">Active games</span><span class="v">{{ summary.active_games }}</span></div>
+      <div class="row"><span class="k">Refreshed</span><span class="v">{{ generated_at }}</span></div>
+    </div>
+  </section>
+
+  <table class="games" id="games-table">
+    <thead>
+      <tr>
+        <th data-key="ev_score">EV score <span class="arrow"></span></th>
+        <th data-key="game_name">Game <span class="arrow"></span></th>
+        <th data-key="game_number">#</th>
+        <th data-key="ticket_price">Price</th>
+        <th data-key="payout_percentage">Payout</th>
+        <th data-key="pct_top_prizes_remaining">Top left</th>
+        <th data-key="pct_total_prize_pool_remaining">Pool left</th>
+        <th data-key="top_prizes_remaining">Top #</th>
+        <th data-key="days_since_launch">Age (d)</th>
+        <th data-key="days_to_claim_deadline">Claim by</th>
+      </tr>
+    </thead>
+    <tbody id="games-body"></tbody>
+  </table>
+
+  <section class="charts">
+    <div class="chart-card"><h3>► Payout % by denomination</h3><canvas id="chart-payout"></canvas></div>
+    <div class="chart-card"><h3>► Top prizes remaining vs days since launch</h3><canvas id="chart-scatter"></canvas></div>
+    <div class="chart-card wide"><h3>► EV score distribution</h3><canvas id="chart-hist"></canvas></div>
+  </section>
+
+  <footer>
+    <div>► Data source: <a href="https://www.coloradolottery.com/en/player-tools/scratch-insider/">coloradolottery.com Scratch Insider</a>. Locally generated dashboard, no live calls from this page.</div>
+    <div style="margin-top:6px;">► Personal context: Longmont CO 80501. Row expansion includes prefilled Winning Stores lookup at 5 mi radius.</div>
+    {% if refresh_log %}
+    <table>
+      <thead><tr><th>Started</th><th>Finished</th><th>OK</th><th>Source</th><th>Games</th><th>Note</th></tr></thead>
+      <tbody>
+        {% for r in refresh_log %}
+        <tr><td>{{ r.started }}</td><td>{{ r.finished or '' }}</td><td>{{ 'yes' if r.ok else 'no' }}</td><td>{{ r.source or '' }}</td><td>{{ r.games or '' }}</td><td>{{ r.note or '' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+  </footer>
+</div>
+
+<script id="data-blob" type="application/json">{{ data_json | safe }}</script>
+<script>
+(function () {
+  const DATA = JSON.parse(document.getElementById('data-blob').textContent);
+  const games = DATA.games;
+  const tbody = document.getElementById('games-body');
+  const state = { sortKey: 'ev_score', sortDir: -1 };
+
+  function fmtPct(v) { return v == null ? '—' : (v * 100).toFixed(1) + '%'; }
+  function fmtNum(v) { return v == null ? '—' : Number(v).toLocaleString(); }
+  function fmtMoney(v) { return v == null ? '—' : '$' + Number(v).toLocaleString(); }
+  function fmtEv(v) { return v == null ? '—' : Number(v).toFixed(3); }
+  function fmtDate(v) { return v ? v : '—'; }
+
+  function getFilters() {
+    const denoms = Array.from(document.querySelectorAll('.denom:checked')).map(el => Number(el.value));
+    return {
+      denoms,
+      minPayout: Number(document.getElementById('min-payout').value) / 100,
+      minTop: Number(document.getElementById('min-top').value) / 100,
+      hideExpiring: document.getElementById('hide-expiring').checked,
+    };
+  }
+
+  function passes(g, f) {
+    if (g.ticket_price != null && !f.denoms.includes(Math.round(g.ticket_price))) return false;
+    if (g.payout_percentage != null && g.payout_percentage < f.minPayout) return false;
+    if (g.pct_top_prizes_remaining != null && g.pct_top_prizes_remaining < f.minTop) return false;
+    if (f.hideExpiring && g.days_to_claim_deadline != null && g.days_to_claim_deadline < 90) return false;
+    return true;
+  }
+
+  function sortGames(rows) {
+    const k = state.sortKey, d = state.sortDir;
+    return rows.slice().sort((a, b) => {
+      const av = a[k], bv = b[k];
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      if (typeof av === 'string') return av.localeCompare(bv) * d;
+      return (av - bv) * d;
+    });
+  }
+
+  function renderTable() {
+    const f = getFilters();
+    const rows = sortGames(games.filter(g => passes(g, f)));
+    tbody.innerHTML = '';
+    rows.forEach((g, i) => {
+      const tr = document.createElement('tr');
+      tr.className = 'row-main';
+      tr.dataset.idx = i;
+      const expiringBadge = (g.days_to_claim_deadline != null && g.days_to_claim_deadline < 90)
+        ? '<span class="badge-warn">expiring</span>' : '';
+      const freshBadge = (g.days_since_launch != null && g.days_since_launch < 30)
+        ? '<span class="badge-fresh">fresh</span>' : '';
+      tr.innerHTML = `
+        <td class="mono gold-text"><strong>${fmtEv(g.ev_score)}</strong></td>
+        <td>${g.game_name}${freshBadge}${expiringBadge}</td>
+        <td class="mono">${g.game_number ?? ''}</td>
+        <td><span class="price-pill">$${g.ticket_price ?? '?'}</span></td>
+        <td class="mono">${fmtPct(g.payout_percentage)}</td>
+        <td class="mono">${fmtPct(g.pct_top_prizes_remaining)}</td>
+        <td class="mono">${fmtPct(g.pct_total_prize_pool_remaining)}</td>
+        <td class="mono">${fmtNum(g.top_prizes_remaining)} / ${fmtNum(g.total_top_prizes)}</td>
+        <td class="mono">${g.days_since_launch ?? '—'}</td>
+        <td class="mono">${g.days_to_claim_deadline != null ? g.days_to_claim_deadline + 'd' : '—'}</td>`;
+      tbody.appendChild(tr);
+
+      const dtr = document.createElement('tr');
+      dtr.className = 'row-detail';
+      dtr.style.display = 'none';
+      const tiersHtml = (g.prize_tiers || []).map(t => `
+        <tr><td>${fmtMoney(t.prize)}</td><td>${fmtNum(t.total)}</td><td>${fmtNum(t.remaining)}</td><td>${t.total ? ((t.remaining / t.total) * 100).toFixed(1) + '%' : '—'}</td></tr>
+      `).join('');
+      dtr.innerHTML = `<td colspan="10"><div class="detail-pad">
+        <div>
+          <h3 style="margin:0 0 10px;">Prize tier breakdown</h3>
+          ${tiersHtml ? `<table class="tier-table"><thead><tr><th>Prize</th><th>Total</th><th>Remaining</th><th>%</th></tr></thead><tbody>${tiersHtml}</tbody></table>` : '<div style="color:var(--muted);font-size:12px">No tier data available for this game.</div>'}
+        </div>
+        <div class="detail-side">
+          <div class="meta-row"><span class="k">Top prize</span><span class="mono">${fmtMoney(g.top_prize)}</span></div>
+          <div class="meta-row"><span class="k">Overall odds</span><span class="mono">${g.overall_odds || '—'}</span></div>
+          <div class="meta-row"><span class="k">Game start</span><span class="mono">${fmtDate(g.game_start)}</span></div>
+          <div class="meta-row"><span class="k">Last day to claim</span><span class="mono">${fmtDate(g.last_day_to_claim)}</span></div>
+          <div class="meta-row"><span class="k">Payout %</span><span class="mono">${fmtPct(g.payout_percentage)}</span></div>
+          <div class="meta-row"><span class="k">Conditional EV</span><span class="mono">${fmtEv(g.conditional_ev_per_dollar)}</span></div>
+          <div class="meta-row"><span class="k">EV score</span><span class="mono gold-text">${fmtEv(g.ev_score)}</span></div>
+          <a class="btn" href="${g.winning_stores_url}" target="_blank" rel="noopener">► Winning stores near 80501</a>
+        </div>
+      </div></td>`;
+      tbody.appendChild(dtr);
+
+      tr.addEventListener('click', () => {
+        dtr.style.display = dtr.style.display === 'none' ? 'table-row' : 'none';
+      });
+    });
+  }
+
+  document.querySelectorAll('#games-table thead th').forEach(th => {
+    th.addEventListener('click', () => {
+      const k = th.dataset.key;
+      if (!k) return;
+      if (state.sortKey === k) state.sortDir = -state.sortDir;
+      else { state.sortKey = k; state.sortDir = (k === 'game_name') ? 1 : -1; }
+      document.querySelectorAll('#games-table thead th .arrow').forEach(a => a.textContent = '');
+      th.querySelector('.arrow').textContent = state.sortDir === 1 ? '▲' : '▼';
+      renderTable();
+    });
+  });
+
+  document.querySelectorAll('#filter-bar input').forEach(el => el.addEventListener('input', () => {
+    document.getElementById('min-payout-val').textContent = document.getElementById('min-payout').value + '%';
+    document.getElementById('min-top-val').textContent = document.getElementById('min-top').value + '%';
+    renderTable();
+  }));
+
+  renderTable();
+  document.querySelector('#games-table thead th[data-key="ev_score"] .arrow').textContent = '▼';
+
+  const denomColors = {1:'#9aa0a6', 2:'#7ec8e3', 3:'#f4e29c', 5:'#c4a25e', 10:'#d4af37', 20:'#b8860b', 50:'#f4cf4d'};
+  const byDenom = {};
+  games.forEach(g => {
+    if (g.ticket_price == null || g.payout_percentage == null) return;
+    const p = Math.round(g.ticket_price);
+    (byDenom[p] = byDenom[p] || []).push(g.payout_percentage);
+  });
+  const denomKeys = Object.keys(byDenom).map(Number).sort((a, b) => a - b);
+  new Chart(document.getElementById('chart-payout'), {
+    type: 'bar',
+    data: {
+      labels: denomKeys.map(d => '$' + d),
+      datasets: [{
+        label: 'Avg payout %',
+        data: denomKeys.map(d => (byDenom[d].reduce((a, b) => a + b, 0) / byDenom[d].length) * 100),
+        backgroundColor: denomKeys.map(d => denomColors[d] || '#d4af37'),
+      }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#bbb' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#bbb', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      },
+    },
+  });
+
+  const scatterByDenom = {};
+  games.forEach(g => {
+    if (g.pct_top_prizes_remaining == null || g.days_since_launch == null) return;
+    const p = Math.round(g.ticket_price);
+    (scatterByDenom[p] = scatterByDenom[p] || []).push({
+      x: g.days_since_launch, y: g.pct_top_prizes_remaining * 100, label: g.game_name,
+    });
+  });
+  new Chart(document.getElementById('chart-scatter'), {
+    type: 'scatter',
+    data: {
+      datasets: Object.keys(scatterByDenom).map(d => ({
+        label: '$' + d,
+        data: scatterByDenom[d],
+        backgroundColor: denomColors[d] || '#d4af37',
+        pointRadius: 6,
+      })),
+    },
+    options: {
+      plugins: {
+        legend: { labels: { color: '#ccc' } },
+        tooltip: { callbacks: { label: ctx => `${ctx.raw.label}: day ${ctx.raw.x}, ${ctx.raw.y.toFixed(1)}% top left` } },
+      },
+      scales: {
+        x: { title: { text: 'Days since launch', display: true, color: '#bbb' }, ticks: { color: '#bbb' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { title: { text: '% top prizes remaining', display: true, color: '#bbb' }, ticks: { color: '#bbb', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      },
+    },
+  });
+
+  const evs = games.map(g => g.ev_score).filter(v => v != null);
+  const bins = 12;
+  const lo = Math.min(...evs), hi = Math.max(...evs);
+  const step = (hi - lo) / bins || 1;
+  const counts = new Array(bins).fill(0);
+  evs.forEach(v => { const b = Math.min(bins - 1, Math.floor((v - lo) / step)); counts[b]++; });
+  new Chart(document.getElementById('chart-hist'), {
+    type: 'bar',
+    data: {
+      labels: counts.map((_, i) => (lo + i * step).toFixed(2)),
+      datasets: [{ label: 'Games', data: counts, backgroundColor: '#d4af37' }],
+    },
+    options: {
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { title: { text: 'EV score (lower bound of bin)', display: true, color: '#bbb' }, ticks: { color: '#bbb' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+        y: { ticks: { color: '#bbb' }, grid: { color: 'rgba(255,255,255,0.05)' } },
+      },
+    },
+  });
+})();
+</script>
+</body>
+</html>

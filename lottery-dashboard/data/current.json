@@ -1,0 +1,510 @@
+{
+  "generated_at": "2026-05-15 18:46:15",
+  "generated_iso": "2026-05-15T18:46:15",
+  "games": [
+    {
+      "game_name": "SET FOR LIFE",
+      "game_number": 387,
+      "ticket_price": 50.0,
+      "game_start": "2026-02-10",
+      "last_day_to_claim": null,
+      "top_prize": 4000000.0,
+      "total_top_prizes": 3,
+      "top_prizes_remaining": 3,
+      "overall_odds": "1 in 2.88",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.79,
+      "days_since_launch": 94,
+      "pct_top_prizes_remaining": 1.0,
+      "pct_total_prize_pool_remaining": 0.9464099896,
+      "days_to_claim_deadline": null,
+      "conditional_ev_per_dollar": 0.7476638918,
+      "ev_score": 0.7476638918,
+      "prize_tiers": [
+        {
+          "prize": 4000000,
+          "total": 3,
+          "remaining": 3
+        },
+        {
+          "prize": 100000,
+          "total": 25,
+          "remaining": 24
+        },
+        {
+          "prize": 10000,
+          "total": 180,
+          "remaining": 170
+        },
+        {
+          "prize": 1000,
+          "total": 4800,
+          "remaining": 4550
+        },
+        {
+          "prize": 500,
+          "total": 24000,
+          "remaining": 22600
+        },
+        {
+          "prize": 100,
+          "total": 240000,
+          "remaining": 225000
+        },
+        {
+          "prize": 50,
+          "total": 780000,
+          "remaining": 730000
+        }
+      ],
+      "game_slug": "set-for-life",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=387"
+    },
+    {
+      "game_name": "Best Chance To Be A Millionaire",
+      "game_number": 379,
+      "ticket_price": 50.0,
+      "game_start": "2025-08-12",
+      "last_day_to_claim": null,
+      "top_prize": 5000000.0,
+      "total_top_prizes": 4,
+      "top_prizes_remaining": 3,
+      "overall_odds": "1 in 2.94",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.78,
+      "days_since_launch": 276,
+      "pct_top_prizes_remaining": 0.75,
+      "pct_total_prize_pool_remaining": 0.6920930233,
+      "days_to_claim_deadline": null,
+      "conditional_ev_per_dollar": 0.5398325581,
+      "ev_score": 0.5398325581,
+      "prize_tiers": [
+        {
+          "prize": 5000000,
+          "total": 4,
+          "remaining": 3
+        },
+        {
+          "prize": 100000,
+          "total": 30,
+          "remaining": 22
+        },
+        {
+          "prize": 10000,
+          "total": 200,
+          "remaining": 140
+        },
+        {
+          "prize": 1000,
+          "total": 5000,
+          "remaining": 3400
+        },
+        {
+          "prize": 500,
+          "total": 25000,
+          "remaining": 16800
+        },
+        {
+          "prize": 100,
+          "total": 250000,
+          "remaining": 170000
+        },
+        {
+          "prize": 50,
+          "total": 800000,
+          "remaining": 540000
+        }
+      ],
+      "game_slug": "best-chance-to-be-a-millionaire",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=379"
+    },
+    {
+      "game_name": "Triple Lucky 7s",
+      "game_number": 381,
+      "ticket_price": 3.0,
+      "game_start": "2025-06-03",
+      "last_day_to_claim": null,
+      "top_prize": 30000.0,
+      "total_top_prizes": 20,
+      "top_prizes_remaining": 14,
+      "overall_odds": "1 in 4.22",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.63,
+      "days_since_launch": 346,
+      "pct_top_prizes_remaining": 0.7,
+      "pct_total_prize_pool_remaining": 0.6588235294,
+      "days_to_claim_deadline": null,
+      "conditional_ev_per_dollar": 0.4150588235,
+      "ev_score": 0.4150588235,
+      "prize_tiers": [
+        {
+          "prize": 30000,
+          "total": 20,
+          "remaining": 14
+        },
+        {
+          "prize": 500,
+          "total": 800,
+          "remaining": 520
+        },
+        {
+          "prize": 50,
+          "total": 12000,
+          "remaining": 7800
+        },
+        {
+          "prize": 6,
+          "total": 300000,
+          "remaining": 195000
+        }
+      ],
+      "game_slug": "triple-lucky-7s",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=381"
+    },
+    {
+      "game_name": "$2 Bingo",
+      "game_number": 376,
+      "ticket_price": 2.0,
+      "game_start": "2025-01-14",
+      "last_day_to_claim": null,
+      "top_prize": 20000.0,
+      "total_top_prizes": 15,
+      "top_prizes_remaining": 10,
+      "overall_odds": "1 in 4.10",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.62,
+      "days_since_launch": 486,
+      "pct_top_prizes_remaining": 0.6666666667,
+      "pct_total_prize_pool_remaining": 0.6215053763,
+      "days_to_claim_deadline": null,
+      "conditional_ev_per_dollar": 0.3853333333,
+      "ev_score": 0.3660666667,
+      "prize_tiers": [
+        {
+          "prize": 20000,
+          "total": 15,
+          "remaining": 10
+        },
+        {
+          "prize": 200,
+          "total": 1200,
+          "remaining": 720
+        },
+        {
+          "prize": 20,
+          "total": 18000,
+          "remaining": 11000
+        },
+        {
+          "prize": 4,
+          "total": 240000,
+          "remaining": 148000
+        }
+      ],
+      "game_slug": "2-bingo",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=376"
+    },
+    {
+      "game_name": "Holiday Cash Blowout",
+      "game_number": 384,
+      "ticket_price": 10.0,
+      "game_start": "2025-11-01",
+      "last_day_to_claim": "2026-07-15",
+      "top_prize": 200000.0,
+      "total_top_prizes": 12,
+      "top_prizes_remaining": 9,
+      "overall_odds": "1 in 3.48",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.7,
+      "days_since_launch": 195,
+      "pct_top_prizes_remaining": 0.75,
+      "pct_total_prize_pool_remaining": 0.6226865672,
+      "days_to_claim_deadline": 61.0,
+      "conditional_ev_per_dollar": 0.435880597,
+      "ev_score": 0.3269104478,
+      "prize_tiers": [
+        {
+          "prize": 200000,
+          "total": 12,
+          "remaining": 9
+        },
+        {
+          "prize": 10000,
+          "total": 60,
+          "remaining": 38
+        },
+        {
+          "prize": 500,
+          "total": 4500,
+          "remaining": 2700
+        },
+        {
+          "prize": 50,
+          "total": 90000,
+          "remaining": 54000
+        },
+        {
+          "prize": 10,
+          "total": 700000,
+          "remaining": 420000
+        }
+      ],
+      "game_slug": "holiday-cash-blowout",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=384"
+    },
+    {
+      "game_name": "$3,000,000 Millionaire Maker",
+      "game_number": 380,
+      "ticket_price": 50.0,
+      "game_start": "2024-11-04",
+      "last_day_to_claim": "2026-08-15",
+      "top_prize": 3000000.0,
+      "total_top_prizes": 6,
+      "top_prizes_remaining": 2,
+      "overall_odds": "1 in 3.04",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.77,
+      "days_since_launch": 557,
+      "pct_top_prizes_remaining": 0.3333333333,
+      "pct_total_prize_pool_remaining": 0.3476962457,
+      "days_to_claim_deadline": 92.0,
+      "conditional_ev_per_dollar": 0.2677261092,
+      "ev_score": 0.2289058234,
+      "prize_tiers": [
+        {
+          "prize": 3000000,
+          "total": 6,
+          "remaining": 2
+        },
+        {
+          "prize": 100000,
+          "total": 45,
+          "remaining": 18
+        },
+        {
+          "prize": 10000,
+          "total": 220,
+          "remaining": 95
+        },
+        {
+          "prize": 1000,
+          "total": 5500,
+          "remaining": 2100
+        },
+        {
+          "prize": 500,
+          "total": 28000,
+          "remaining": 9800
+        },
+        {
+          "prize": 100,
+          "total": 280000,
+          "remaining": 95000
+        },
+        {
+          "prize": 50,
+          "total": 900000,
+          "remaining": 310000
+        }
+      ],
+      "game_slug": "3-000-000-millionaire-maker",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=380"
+    },
+    {
+      "game_name": "Diamond Dazzler",
+      "game_number": 372,
+      "ticket_price": 20.0,
+      "game_start": "2024-05-20",
+      "last_day_to_claim": "2026-09-30",
+      "top_prize": 1000000.0,
+      "total_top_prizes": 8,
+      "top_prizes_remaining": 1,
+      "overall_odds": "1 in 3.21",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.72,
+      "days_since_launch": 725,
+      "pct_top_prizes_remaining": 0.125,
+      "pct_total_prize_pool_remaining": 0.115,
+      "days_to_claim_deadline": 138.0,
+      "conditional_ev_per_dollar": 0.0828,
+      "ev_score": 0.070794,
+      "prize_tiers": [
+        {
+          "prize": 1000000,
+          "total": 8,
+          "remaining": 1
+        },
+        {
+          "prize": 50000,
+          "total": 40,
+          "remaining": 6
+        },
+        {
+          "prize": 1000,
+          "total": 4000,
+          "remaining": 350
+        },
+        {
+          "prize": 100,
+          "total": 200000,
+          "remaining": 22000
+        },
+        {
+          "prize": 20,
+          "total": 600000,
+          "remaining": 72000
+        }
+      ],
+      "game_slug": "diamond-dazzler",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=372"
+    },
+    {
+      "game_name": "Hit $500",
+      "game_number": 369,
+      "ticket_price": 1.0,
+      "game_start": "2024-08-05",
+      "last_day_to_claim": "2026-05-30",
+      "top_prize": 500.0,
+      "total_top_prizes": 800,
+      "top_prizes_remaining": 120,
+      "overall_odds": "1 in 4.55",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.6,
+      "days_since_launch": 648,
+      "pct_top_prizes_remaining": 0.15,
+      "pct_total_prize_pool_remaining": 0.16,
+      "days_to_claim_deadline": 15.0,
+      "conditional_ev_per_dollar": 0.096,
+      "ev_score": 0.0684,
+      "prize_tiers": [
+        {
+          "prize": 500,
+          "total": 800,
+          "remaining": 120
+        },
+        {
+          "prize": 50,
+          "total": 4000,
+          "remaining": 700
+        },
+        {
+          "prize": 5,
+          "total": 60000,
+          "remaining": 10000
+        },
+        {
+          "prize": 1,
+          "total": 600000,
+          "remaining": 95000
+        }
+      ],
+      "game_slug": "hit-500",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=369"
+    },
+    {
+      "game_name": "Cash Crossword",
+      "game_number": 365,
+      "ticket_price": 5.0,
+      "game_start": "2023-09-15",
+      "last_day_to_claim": "2026-06-01",
+      "top_prize": 100000.0,
+      "total_top_prizes": 10,
+      "top_prizes_remaining": 1,
+      "overall_odds": "1 in 3.95",
+      "num_eligible_drawings": 1,
+      "payout_percentage": 0.65,
+      "days_since_launch": 973,
+      "pct_top_prizes_remaining": 0.1,
+      "pct_total_prize_pool_remaining": 0.081509434,
+      "days_to_claim_deadline": 17.0,
+      "conditional_ev_per_dollar": 0.0529811321,
+      "ev_score": 0.0377490566,
+      "prize_tiers": [
+        {
+          "prize": 100000,
+          "total": 10,
+          "remaining": 1
+        },
+        {
+          "prize": 1000,
+          "total": 200,
+          "remaining": 14
+        },
+        {
+          "prize": 100,
+          "total": 6000,
+          "remaining": 480
+        },
+        {
+          "prize": 25,
+          "total": 40000,
+          "remaining": 3200
+        },
+        {
+          "prize": 5,
+          "total": 500000,
+          "remaining": 38000
+        }
+      ],
+      "game_slug": "cash-crossword",
+      "winning_stores_url": "https://www.coloradolottery.com/en/player-tools/winning-stores/?zip=80501&radius=5&game_type=scratch&game_number=365"
+    }
+  ],
+  "summary": {
+    "by_denomination": {
+      "$1": {
+        "count": 1,
+        "avg_payout": 0.6
+      },
+      "$2": {
+        "count": 1,
+        "avg_payout": 0.62
+      },
+      "$3": {
+        "count": 1,
+        "avg_payout": 0.63
+      },
+      "$5": {
+        "count": 1,
+        "avg_payout": 0.65
+      },
+      "$10": {
+        "count": 1,
+        "avg_payout": 0.7
+      },
+      "$20": {
+        "count": 1,
+        "avg_payout": 0.72
+      },
+      "$50": {
+        "count": 3,
+        "avg_payout": 0.7799999999999999
+      }
+    },
+    "top3_by_ev": [
+      {
+        "game_name": "SET FOR LIFE",
+        "game_number": 387,
+        "ticket_price": 50.0,
+        "ev_score": 0.7476638917793965
+      },
+      {
+        "game_name": "Best Chance To Be A Millionaire",
+        "game_number": 379,
+        "ticket_price": 50.0,
+        "ev_score": 0.5398325581395349
+      },
+      {
+        "game_name": "Triple Lucky 7s",
+        "game_number": 381,
+        "ticket_price": 3.0,
+        "ev_score": 0.41505882352941176
+      }
+    ],
+    "total_remaining_prize_pool": 225888000.0,
+    "active_games": 9
+  },
+  "source": "sample",
+  "fallback_note": "both feeds failed (xlsx: http 403; html: http 403); rendered from bundled sample data",
+  "refresh_log": []
+}
