@@ -687,6 +687,8 @@ function listingInput(v, designIds) {
     price_usd: price,
     quantity: 25,
     when_made: 'made_to_order',
+    who_made: 'i_did', // the shop designs it; the operator confirms the print partner (below) before activating
+    production_partner_ids: null, // the demo knows no partner id: the publish receipt asks the operator to declare it
     artifact_ids: designIds,
     ai_disclosure: 'Drafted in OUTPOST, an AI-agent workspace. This draft came from its scripted demo mode (no language model was used); the shop owner reviews every listing before it goes live.',
     originality_note: 'Original design: headline, lettering layout and botanical artwork were created for this listing from generic themes (hand-lettered garden words, pastel leaves). No specific existing listing, artwork, wording, character, logo or trademark was referenced or copied.',
@@ -917,7 +919,10 @@ const tally = script((v) => {
   const ledger = read.result?.json;
   if (read.result?.isError || !ledger) return { text: failure('I could not read the ledger', read) };
   const t = ledger.totals;
-  const coverage = ledger.evidence_coverage === null ? 'n/a (nothing counted yet)' : `${Math.round(ledger.evidence_coverage * 100)}%`;
+  // Floored like the UI: the connector-backed share is never overstated.
+  const coverage = ledger.evidence_coverage === null
+    ? 'n/a (nothing counted yet)'
+    : ledger.evidence_coverage_note ? ledger.evidence_coverage_note : `${Math.floor(ledger.evidence_coverage * 100)}%`;
   const syncLine = synced.result?.isError ? `Connector sync: not done (${synced.result.text}).` : `Connector sync: ${synced.result.text}`;
   const report = [
     '# Ledger report',
@@ -931,7 +936,8 @@ const tally = script((v) => {
     `- Agent claims (never counted): ${money(t.claimed_revenue_usd)}`,
     `- Fees ${money(t.fees_usd)}, costs ${money(t.costs_usd)}, net counted ${money(t.net_counted_usd)}`,
     `- Evidence coverage: ${coverage}`,
-    `- Runtime spend: ${money(ledger.runtime_spend_usd.today)} today, ${money(ledger.runtime_spend_usd.total)} total`,
+    `- Runtime spend: ${money(ledger.runtime_spend_usd.today)} today (UTC${ledger.runtime_spend_usd.today_utc_date ? ` ${ledger.runtime_spend_usd.today_utc_date}` : ''}), ${money(ledger.runtime_spend_usd.total)} total`,
+    ledger.unconverted ? `- Not in the USD figures above: ${Object.entries(ledger.unconverted).map(([cur, u]) => `${u.entries} ${cur} entr${u.entries === 1 ? 'y' : 'ies'}`).join(', ')} (no currency conversion)` : '',
     t.claimed_revenue_usd > 0 && t.verified_revenue_usd === 0 ? '- Gap: claims exist with no verified revenue behind them.' : '',
   ].filter((line) => line !== '').join('\n');
   if (!v.last('memory_write')) return { text: 'Filing the report in the Ops archive.', calls: [['memory_write', { key: 'ledger-report', content: report }]] };

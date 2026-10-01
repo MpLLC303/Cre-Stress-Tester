@@ -127,7 +127,7 @@ test('validateInput enforces types, null unions, required, enum, lengths, items 
   assert.match(v('list_tasks', { status: 'bogus' }), /must be one of/);
   assert.equal(v('list_tasks', { status: null }), null);
   assert.match(v('read_file', { path: 'x'.repeat(301) }), /longer than 300/);
-  const listing = { title: 't', description: 'd', tags: ['a'], price_usd: 1, quantity: 1, when_made: 'made_to_order', artifact_ids: ['art_x'], ai_disclosure: 'a', originality_note: 'o' };
+  const listing = { title: 't', description: 'd', tags: ['a'], price_usd: 1, quantity: 1, when_made: 'made_to_order', who_made: 'i_did', production_partner_ids: null, artifact_ids: ['art_x'], ai_disclosure: 'a', originality_note: 'o' };
   assert.equal(v('create_listing_draft', listing), null);
   assert.match(v('create_listing_draft', { ...listing, tags: Array(14).fill('a') }), /more than 13 items/);
   assert.match(v('create_listing_draft', { ...listing, tags: [] }), /fewer than 1 items/);
@@ -278,7 +278,8 @@ test('generate_image records spend, then stores the image artifact', async () =>
   const ctx = setup('pixel', { imageProvider });
   const res = await call('generate_image', { title: 'Fern', prompt: 'an original fern', size: '1536x1024' }, ctx);
   assert.equal(res.ok, true);
-  assert.deepEqual(requests, [{ prompt: 'an original fern', size: '1536x1024' }]);
+  assert.deepEqual(requests.map(({ prompt, size }) => ({ prompt, size })), [{ prompt: 'an original fern', size: '1536x1024' }]);
+  assert.ok(Object.hasOwn(requests[0], 'signal'), 'the run signal is passed so E-STOP can abort the request');
   const [spend] = ofType(ctx, 'spend.recorded');
   assert.deepEqual(spend.payload, { agentId: 'pixel', runId: 'run_1', category: 'image', model: 'gpt-image-2', usd: 0.041, detail: 'estimate for one 1536x1024 image' });
   const meta = ctx.store.state.artifacts[res.artifactIds[0]];
@@ -339,10 +340,22 @@ const goodListing = (designId) => ({
   price_usd: 34.999,
   quantity: 25,
   when_made: 'made_to_order',
+  who_made: 'i_did',
+  production_partner_ids: null,
   artifact_ids: [designId],
   ai_disclosure: 'Drafted with AI assistance.',
   originality_note: 'Original artwork.',
 });
+
+/** The operator steps every publish receipt must state, whatever the mode. */
+function assertBeforeActivation(receipt) {
+  const steps = receipt.before_activation.join('\n');
+  assert.match(steps, /DRAFTS and never activates them/);
+  assert.match(steps, /"How it's made" \/ AI-generator disclosure in Shop Manager/);
+  assert.match(steps, /API does not expose that field/);
+  assert.match(steps, /SVG designs must be rasterized to PNG or JPEG before upload/);
+  assert.match(steps, /production partner/);
+}
 
 test('create_listing_draft writes an Etsy-shaped draft', async () => {
   const ctx = setup('quill');
@@ -351,10 +364,55 @@ test('create_listing_draft writes an Etsy-shaped draft', async () => {
   const draft = artifactJson(ctx, res.artifactIds[0]);
   assert.equal(ctx.store.state.artifacts[res.artifactIds[0]].kind, 'listing_draft');
   assert.equal(draft.who_made, 'i_did');
+  assert.equal(draft.production_partner_ids, null);
   assert.equal(draft.is_supply, false);
   assert.equal(draft.price_usd, 35);
   assert.equal(draft.when_made, 'made_to_order');
   assert.equal(draft.created_by, 'quill');
+  assert.match(res.output.partner_note, /No production partner declared.*print-on-demand.*declare that partner.*re-verify on etsy\.com/);
+});
+
+test('create_listing_draft takes who_made and production partners as input (no hard-coded i_did)', async () => {
+  const schema = TOOLS.create_listing_draft.input_schema;
+  assert.deepEqual(schema.properties.who_made.enum, ['i_did', 'someone_else', 'collective']);
+  assert.deepEqual(schema.properties.production_partner_ids.type, ['array', 'null']);
+  assert.ok(schema.required.includes('who_made') && schema.required.includes('production_partner_ids'), 'strict: nullable fields are still required');
+  const [api] = toolDefinitions(['create_listing_draft']);
+  assert.equal(api.strict, true);
+  assert.deepEqual(api.input_schema.properties.production_partner_ids.type, ['array', 'null']);
+  assert.equal(api.input_schema.properties.production_partner_ids.items.type, 'integer');
+  assert.match(TOOLS.create_listing_draft.description, /print-on-demand made by a production partner, Etsy's reported guidance is to declare that partner/);
+  assert.match(TOOLS.create_listing_draft.description, /re-verify on etsy\.com/);
+  assert.doesNotMatch(TOOLS.create_listing_draft.description, /who_made is "i_did"/);
+
+  const v = (patch) => validateInput(TOOLS.create_listing_draft, { ...goodListing('art_x'), ...patch });
+  assert.match(v({ who_made: 'me' }), /who_made: must be one of/);
+  const { who_made: _w, ...noWhoMade } = goodListing('art_x');
+  assert.match(validateInput(TOOLS.create_listing_draft, noWhoMade), /missing required field "who_made"/);
+  const { production_partner_ids: _p, ...noPartners } = goodListing('art_x');
+  assert.match(validateInput(TOOLS.create_listing_draft, noPartners), /missing required field "production_partner_ids"/);
+  assert.match(v({ production_partner_ids: ['p1'] }), /production_partner_ids\[0\]: expected integer/);
+  assert.match(v({ production_partner_ids: 5 }), /expected array or null/);
+  assert.match(v({ production_partner_ids: Array.from({ length: 11 }, (_, i) => i + 1) }), /more than 10 items/);
+  assert.equal(v({ who_made: 'someone_else', production_partner_ids: [4021] }), null);
+
+  const ctx = setup('quill');
+  const d = await design(ctx);
+  const res = await call('create_listing_draft', { ...goodListing(d), who_made: 'someone_else', production_partner_ids: [4021, 4022] }, ctx);
+  assert.equal(res.ok, true, res.output);
+  const draft = artifactJson(ctx, res.artifactIds[0]);
+  assert.equal(draft.who_made, 'someone_else');
+  assert.deepEqual(draft.production_partner_ids, [4021, 4022]);
+  assert.equal(res.output.partner_note, undefined);
+  const empty = await call('create_listing_draft', { ...goodListing(d), who_made: 'collective', production_partner_ids: [] }, ctx);
+  assert.equal(artifactJson(ctx, empty.artifactIds[0]).production_partner_ids, null, 'an empty list is stored as none');
+
+  // the same rules hold if the schema check were bypassed
+  const run = (patch) => TOOLS.create_listing_draft.run({ ...goodListing(d), ...patch }, ctx);
+  assert.match((await run({ who_made: 'nobody' })).output, /who_made must be one of i_did, someone_else, collective/);
+  assert.match((await run({ production_partner_ids: [7, 7] })).output, /duplicates/);
+  assert.match((await run({ production_partner_ids: [0] })).output, /positive whole numbers/);
+  assert.match((await run({ production_partner_ids: 'x' })).output, /array of Etsy production partner ids, or null/);
 });
 
 test('create_listing_draft enforces Etsy limits and the honesty fields', async () => {
@@ -400,7 +458,12 @@ test('publish_listing without a connector is a labelled dry run', async () => {
   assert.equal(receipt.mode, 'dry_run');
   assert.equal(receipt.note, DRY_RUN_NOTE);
   assert.match(receipt.would_send.description, /Drafted with AI assistance\./);
+  assert.equal(receipt.would_send.who_made, 'i_did');
   assert.match(receipt.image_note, /rasterize/);
+  assertBeforeActivation(receipt);
+  assert.match(res.output, /would create an Etsy DRAFT listing: Outpost never activates it/);
+  assert.match(res.output, /"How it's made" \/ AI disclosure there \(not in the API\)/);
+  assert.match(res.output, /rasterize any SVG design to PNG\/JPEG/);
   await assert.rejects(() => call('publish_listing', { draft_artifact_id: res.artifactIds[0] }, ctx), /not a listing_draft/);
 });
 
@@ -430,6 +493,23 @@ test('publish_listing with Etsy configured creates a draft and uploads only PNG/
   assert.deepEqual(receipt.images.uploaded, [{ artifact_id: png.artifactIds[0], listing_image_id: 9 }]);
   assert.equal(receipt.images.skipped[0].artifact_id, svgId);
   assert.match(receipt.images.skipped[0].reason, /SVG/);
+  assert.equal(receipt.state, 'draft');
+  assertBeforeActivation(receipt);
+  assert.match(res.output, /Outpost never activates it; before activating in Shop Manager, set Etsy's "How it's made" \/ AI disclosure there \(not in the API\) and rasterize any SVG design/);
+});
+
+test('publish_listing sends the declared maker and production partners to Etsy', async () => {
+  const sent = [];
+  const etsy = {
+    configured: true,
+    createDraftListing: async (payload) => { sent.push(payload); return { listingId: 556, url: 'https://www.etsy.com/listing/556' }; },
+    uploadListingImage: async () => ({ imageId: 1 }),
+  };
+  const ctx = setup('quill', { connectors: { etsy } });
+  const draftId = (await call('create_listing_draft', { ...goodListing(await design(ctx)), who_made: 'someone_else', production_partner_ids: [4021] }, ctx)).artifactIds[0];
+  await call('publish_listing', { draft_artifact_id: draftId }, ctx);
+  assert.equal(sent[0].who_made, 'someone_else');
+  assert.deepEqual(sent[0].production_partner_ids, [4021]);
 });
 
 test('package_deliverable records verified sha256 per file and refuses tampered files', async () => {
@@ -498,6 +578,38 @@ test('read_ledger reports counted totals by provenance and keeps claims out of t
   assert.match(output.note, /Agent claims .* never added to any total/);
 });
 
+test('read_ledger keeps other currencies out of the *_usd totals and never rounds coverage up (TL-2, TL-14)', async () => {
+  const ctx = setup('tally');
+  const entry = (entryId, kind, amountCents, provenance, extra = {}) => ctx.store.append('ledger.entry', {
+    entryId, kind, amountCents, currency: 'USD', stream: 'etsy', provenance, source: {}, occurredAt: '2026-10-01T00:00:00.000Z', ...extra,
+  });
+  entry('led_1', 'revenue', 99_960, 'connector', { source: { connector: 'etsy', externalId: 'receipt:1' } });
+  entry('led_2', 'revenue', 40, 'manual');
+  entry('led_3', 'revenue', 10_000, 'connector', { currency: 'GBP', source: { connector: 'etsy', externalId: 'receipt:2' } });
+  entry('led_4', 'fee', 650, 'connector', { currency: 'GBP', source: { connector: 'etsy', externalId: 'ledger:9' } });
+  const { output } = await call('read_ledger', {}, ctx);
+  assert.equal(output.totals.verified_revenue_usd, 999.6, 'GBP is not added to the USD total');
+  assert.equal(output.totals.fees_usd, 0);
+  assert.equal(output.evidence_coverage, 0.999, '0.9996 is floored, never rounded up to 1');
+  assert.deepEqual(output.unconverted, { GBP: { entries: 2, verified_revenue: 100, operator_revenue: 0, claimed_revenue: 0, fees: 6.5, costs: 0 } });
+  assert.match(output.unconverted_note, /NOT in any \*_usd total/);
+
+  entry('led_5', 'refund', 500_000, 'manual');
+  const after = (await call('read_ledger', {}, ctx)).output;
+  assert.ok(after.evidence_coverage <= 1);
+  assert.match(after.evidence_coverage_note, /operator refunds exceed operator revenue/);
+});
+
+test('the publish approval says what granting will do: Etsy draft or dry run (TL-6)', () => {
+  const tool = TOOLS.publish_listing;
+  const off = tool.summarize({ draft_artifact_id: 'art_1' }, { connectors: { etsy: { configured: false } } });
+  assert.match(off, /^DRY RUN: nothing will be sent \(no Etsy connector configured\)/);
+  const on = tool.summarize({ draft_artifact_id: 'art_1' }, { connectors: { etsy: { configured: true } } });
+  assert.match(on, /^WILL CREATE an Etsy DRAFT listing from art_1 via the Etsy API/);
+  assert.doesNotMatch(`${off} ${on}`, /if connected/, 'no hedge the runtime could have resolved');
+  assert.match(TOOLS.deliver_order.summarize({ package_artifact_id: 'p', order_ref: 'o' }), /nothing is sent/);
+});
+
 test('record_ledger_claim appends an agent_claim with its source', async () => {
   const ctx = setup('tally');
   const res = await call('record_ledger_claim', { kind: 'revenue', amount_usd: 19.999, stream: 'fiverr', memo: 'order 7', source_note: 'buyer message in Fiverr inbox' }, ctx);
@@ -521,7 +633,7 @@ test('sync_connector: unconfigured, success and failure', async () => {
   for (const name of ['ETSY_API_KEY', 'ETSY_SHARED_SECRET', 'ETSY_ACCESS_TOKEN', 'ETSY_SHOP_ID']) assert.ok(unconfigured.output.includes(name));
   const ok = await call('sync_connector', { connector: 'etsy' }, setup('tally', { connectors: { etsy: { configured: true, syncRevenue: async () => ({ fetched: 4, newEntries: 1 }) } } }));
   assert.equal(ok.ok, true);
-  assert.match(ok.output, /fetched 4 receipt\(s\), recorded 1 new verified ledger entry/);
+  assert.match(ok.output, /receipts: 4 fetched, 1 new verified entry/);
   const failed = await call('sync_connector', { connector: 'etsy' }, setup('tally', { connectors: { etsy: { configured: true, syncRevenue: async () => { throw new Error('HTTP 503'); } } } }));
   assert.equal(failed.ok, false);
   assert.match(failed.output, /HTTP 503/);

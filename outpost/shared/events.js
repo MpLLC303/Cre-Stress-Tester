@@ -10,8 +10,16 @@
 //   actor - 'system' | 'operator' | <agentId> | 'scheduler' | 'connector:<name>'
 //
 // Rules: additive only. Never rename or remove an event type or a required field.
+//
+// Web taint: content fetched from the web can carry injected instructions, so everything derived
+// from it is marked. Payloads that carry `taint: 'web'` also carry `taintSources`, the direct
+// reasons, each one of: 'web' (the run used web_search / web_fetch), an artifact id (a tainted
+// input or read), a run id (a tainted child run under review) or 'memory:<namespace>/<key>'
+// (a tainted room-memory note). Untainted payloads omit both fields.
 
 /** @typedef {{seq:number, ts:string, type:string, actor:string, payload:object}} OutpostEvent */
+
+export const WEB_TAINT = 'web';
 
 // Field spec mini-language: 'string', 'number', 'boolean', 'object', 'array', 'any';
 // suffix '?' marks optional; a pipe-separated list of quoted literals is an enum.
@@ -67,6 +75,10 @@ export const EVENT_TYPES = {
     usage: 'object', // raw usage numbers from the provider
     costUsd: 'number', // cost of this step, computed from sidecar/pricing.js
     text: 'string?', // visible assistant text this turn, truncated
+    // Set when a server-side fallback served (part of) the turn: costUsd split per model that ran
+    // (sums to costUsd), and the model that answered when it is not the requested one.
+    costByModel: 'object?',
+    servedModel: 'string?',
   },
   'run.finished': {
     runId: 'string',
@@ -77,6 +89,9 @@ export const EVENT_TYPES = {
     costUsd: 'number',
     summary: 'string?',
     error: 'string?',
+    servedModels: 'array?', // fallback models that answered turns of this run (absent when none)
+    taint: "'web'?", // the run saw web content, directly or through a tainted input
+    taintSources: 'array?',
   },
 
   'tool.called': {
@@ -112,6 +127,8 @@ export const EVENT_TYPES = {
     tool: 'string',
     summary: 'string',
     input: 'string',
+    taint: "'web'?", // requested by a web-tainted run: review the request for injected instructions
+    taintSources: 'array?',
   },
   'approval.resolved': {
     approvalId: 'string',
@@ -141,9 +158,11 @@ export const EVENT_TYPES = {
     mime: 'string',
     bytes: 'number',
     sha256: 'string',
+    taint: "'web'?", // written by a web-tainted run
+    taintSources: 'array?',
   },
 
-  'memory.written': { agentId: 'string', namespace: 'string', key: 'string', bytes: 'number' },
+  'memory.written': { agentId: 'string', namespace: 'string', key: 'string', bytes: 'number', taint: "'web'?", taintSources: 'array?' },
 
   // Non-LLM spend the runtime computed (e.g. image generation), so budgets see it.
   'spend.recorded': {
@@ -213,6 +232,9 @@ export function validatePayload(type, payload) {
     if (!checkField(fieldSpec, payload[field])) {
       return `${type}: field "${field}" expected ${fieldSpec}, got ${JSON.stringify(payload[field])?.slice(0, 80)}`;
     }
+  }
+  if (spec.taintSources && Array.isArray(payload.taintSources) && !payload.taintSources.every((s) => typeof s === 'string')) {
+    return `${type}: field "taintSources" must contain only strings`;
   }
   return null;
 }

@@ -59,6 +59,7 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
   let timer = null;
   let tickQueued = false;
   let budgetHoldDay = null;
+  let readOnlyLogged = false;
 
   const agentById = (id) => station.agents.find((a) => a.id === id) || null;
   const roomOfAgent = (id) => agentById(id)?.room ?? null;
@@ -104,9 +105,12 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
     maybeCreateReview(taskId);
   }
 
-  /** Re-queue a task whose run was cut short, unless it has used up its attempts. */
+  /**
+   * Re-queue a task whose run was cut short, unless it has used up its attempts. Runs the operator
+   * halted (outcome 'aborted': E-STOP; cancelled tasks never get here) are not attempts.
+   */
   function requeueOrFail(task, why) {
-    const attempts = task.runIds.length;
+    const attempts = task.runIds.filter((id) => state.runs[id]?.outcome !== 'aborted').length;
     if (attempts < MAX_ATTEMPTS) setTaskStatus(task.taskId, 'queued', { reason: `${why}; re-queued (attempt ${attempts + 1} of ${MAX_ATTEMPTS})` });
     else setTaskStatus(task.taskId, 'failed', { reason: `${why}; gave up after ${attempts} attempts` });
   }
@@ -165,10 +169,10 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
    * exactly one review task. "Already reviewed" is read from the log, so it survives restarts.
    * @returns {string|null} the review task id, if one was created
    */
-  function maybeCreateReview(parentId) {
+  function maybeCreateReview(parentId, knownRelated = null) {
     const parent = parentId && state.tasks[parentId];
     if (!parent || !['done', 'failed'].includes(parent.status) || !agentById(parent.assignee)) return null;
-    const related = state.taskOrder.map((id) => state.tasks[id]).filter((t) => t.parentTaskId === parentId);
+    const related = knownRelated ?? state.taskOrder.map((id) => state.tasks[id]).filter((t) => t.parentTaskId === parentId);
     const children = related.filter((t) => t.kind === 'work');
     if (!children.length || related.some((t) => t.kind === 'review') || !children.every((t) => TERMINAL.has(t.status))) return null;
     const reviewId = createTask({
@@ -264,6 +268,27 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
 
   // ---- runs --------------------------------------------------------------------------------
 
+  /** True (logged once) when the event store failed a write: nothing new may start. */
+  function readOnly() {
+    const failed = store.health?.().failed;
+    if (failed && !readOnlyLogged) {
+      readOnlyLogged = true;
+      console.error(`outpost dispatcher: store write failed; station is read-only (${failed}). No run starts until the sidecar restarts.`);
+    }
+    return Boolean(failed);
+  }
+
+  /**
+   * External actions a halted run may already have taken: the approval-gated tools the operator
+   * granted it (publish_listing, deliver_order), and receipts among its outputs. Re-running such a
+   * task could repeat the action (e.g. a second Etsy draft), so it is never retried automatically.
+   */
+  function sideEffectsOf(runId, outputs = []) {
+    const granted = unique(Object.values(state.approvals).filter((ap) => ap.runId === runId && ap.status === 'granted').map((ap) => ap.tool));
+    const receipts = outputs.filter((id) => ['publish_receipt', 'delivery'].includes(state.artifacts[id]?.kind));
+    return granted.length || receipts.length ? { granted, receipts } : null;
+  }
+
   /** Model and image spend recorded today (UTC). */
   function spendTodayUsd() {
     return state.spend.byDay[utcDay(now())] || 0;
@@ -324,7 +349,8 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
     try {
       finish(entry, result);
     } catch (err) {
-      console.error(`outpost dispatcher: could not record the end of run ${entry.runId}:`, err);
+      if (!readOnly()) console.error(`outpost dispatcher: could not record the end of run ${entry.runId}:`, err);
+      if (active.get(entry.agentId) === entry) active.delete(entry.agentId);
     }
   }
 
@@ -335,7 +361,17 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
       if (result.outcome === 'completed') {
         setTaskStatus(task.taskId, 'done', { outputs: result.outputs, summary: result.summary || undefined });
       } else if (result.outcome === 'aborted' && entry.stopReason === 'estop') {
-        requeueOrFail(task, 'halted by E-STOP');
+        const fx = sideEffectsOf(entry.runId, result.outputs);
+        if (fx) {
+          const what = fx.granted.length ? `approved ${fx.granted.join(', ')}` : 'a receipt was recorded';
+          setTaskStatus(task.taskId, 'failed', {
+            outputs: result.outputs,
+            reason: `halted by E-STOP after an external action had started (${what}); not retried automatically so it cannot run twice. Check the receipt and the marketplace (artifacts of run ${entry.runId}) before re-running.`,
+          });
+        } else {
+          // An operator halt is not a failed attempt: the task waits for the release, however often.
+          setTaskStatus(task.taskId, 'queued', { reason: 'halted by E-STOP; re-queued (operator halts do not use up attempts)' });
+        }
       } else {
         setTaskStatus(task.taskId, 'failed', { reason: `${result.outcome}: ${result.error || 'no detail'}`, summary: result.summary || undefined });
       }
@@ -348,7 +384,7 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
    * @returns {string[]} ids of the tasks started
    */
   function tick() {
-    if (stopped) return [];
+    if (stopped || readOnly()) return [];
     const started = [];
     for (const taskId of state.taskOrder) {
       const task = state.tasks[taskId];
@@ -454,7 +490,18 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
       summary.agentsReset += 1;
     }
     // Failing a task above may already have produced its parent's review; this catches the rest.
-    for (const parentId of unique(state.taskOrder.map((id) => state.tasks[id].parentTaskId).filter(Boolean))) maybeCreateReview(parentId);
+    // One indexed pass (parent -> its tasks), so boot stays linear in the number of tasks.
+    const related = new Map();
+    for (const id of state.taskOrder) {
+      const t = state.tasks[id];
+      if (!t.parentTaskId) continue;
+      let list = related.get(t.parentTaskId);
+      if (!list) related.set(t.parentTaskId, (list = []));
+      list.push(t);
+    }
+    for (const [parentId, list] of related) {
+      if (!list.some((t) => t.kind === 'review')) maybeCreateReview(parentId, list);
+    }
     summary.reviewsCreated = reviewCount() - reviewsBefore;
     return summary;
   }

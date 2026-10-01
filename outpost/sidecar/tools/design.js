@@ -1,6 +1,7 @@
 // Design station tools: vector designs (always available) and raster images (only when an image
 // provider is configured; every generated image is recorded as spend so budgets see it).
 
+import { estimateImageCostUsd } from '../images.js';
 import { sanitizeSvg } from '../svg.js';
 import { saveArtifact } from './files.js';
 
@@ -31,7 +32,15 @@ export async function renderSvgDesign(input, ctx) {
 export async function generateImage(input, ctx) {
   const provider = ctx.imageProvider;
   if (!provider) return { ok: false, output: IMAGE_PROVIDER_HELP };
-  const img = await provider.generate({ prompt: input.prompt, size: input.size });
+  // Refuse before paying: the run or station budget is already spent (ctx.budgetBlock, loop.js).
+  const blocked = ctx.budgetBlock?.();
+  if (blocked) return { ok: false, output: `not generated, budget exceeded: ${blocked}` };
+  const estimate = estimateImageCostUsd(provider.model, input.size);
+  const room = ctx.budgetRemainingUsd?.();
+  if (estimate !== null && Number.isFinite(room) && estimate > room) {
+    return { ok: false, output: `not generated: this image costs about $${estimate.toFixed(3)}, more than the $${Math.max(0, room).toFixed(3)} left in the run and station budgets` };
+  }
+  const img = await provider.generate({ prompt: input.prompt, size: input.size, signal: ctx.signal });
   // Spend first: the money is gone once the API answered, even if storing the file fails.
   const priced = typeof img.estimatedCostUsd === 'number';
   ctx.store.append('spend.recorded', {

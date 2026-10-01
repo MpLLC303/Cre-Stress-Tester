@@ -512,3 +512,124 @@ test('scripted provider: agents without a script get the labeled fallback', asyn
     { type: 'message', role: 'assistant', model: 'scripted', stop_reason: 'end_turn' },
   );
 });
+
+// ---- budgets between tool calls (SEC-2, RT-4) -------------------------------------------------
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+
+function imageProvider(model = 'fake-image', usd = 0.25) {
+  const calls = [];
+  return {
+    calls,
+    provider: {
+      name: 'fake',
+      model,
+      async generate(req) {
+        calls.push(req);
+        return { buffer: PNG, mime: 'image/png', requestId: null, estimatedCostUsd: usd };
+      },
+    },
+  };
+}
+
+const sixImages = () => msg(
+  Array.from({ length: 6 }, (_, i) => use(`toolu_${i}`, 'generate_image', { title: `img ${i}`, prompt: 'an original fern', size: '1024x1024' })),
+  'tool_use',
+);
+
+test('one turn of parallel generate_image calls cannot overspend the run budget: budgets are checked before every call', async () => {
+  const env = setup('pixel', { runBudgetUsd: 0.1 });
+  const images = imageProvider();
+  const provider = fakeProvider([sixImages(), done()]);
+  const res = await run(env, provider, undefined, { ctxBase: { config: {}, imageProvider: images.provider } });
+
+  assert.equal(images.calls.length, 1, 'exactly one image is billed');
+  assert.equal(res.outcome, 'budget_exceeded');
+  assert.match(finished(env.store).error, /exceeded the \$0\.1 run budget/);
+  const denied = payloads(env.store, 'tool.denied');
+  assert.equal(denied.length, 5);
+  for (const d of denied) assert.match(d.reason, /^budget exceeded, not run: run cost/);
+  assert.equal(provider.calls.length, 1, 'no further paid call');
+  assert.ok(images.calls[0].signal, 'the run signal reaches the image provider');
+});
+
+test('the station daily budget is checked before every tool call too', async () => {
+  const env = setup('pixel');
+  const images = imageProvider();
+  const today = () => env.store.state.spend.byDay[new Date().toISOString().slice(0, 10)] || 0;
+  const res = await run(env, fakeProvider([sixImages(), done()]), undefined, {
+    ctxBase: { config: {}, imageProvider: images.provider },
+    stationSpendTodayUsd: today,
+    stationDailyBudgetUsd: 0.3,
+  });
+  assert.equal(images.calls.length, 2, '0.006 + 0.25 is under $0.30, the second image crosses it');
+  assert.equal(res.outcome, 'budget_exceeded');
+  assert.match(finished(env.store).error, /station daily budget reached/);
+});
+
+test('generate_image refuses before paying when its price is more than the budget left', async () => {
+  const env = setup('pixel', { runBudgetUsd: 0.05 });
+  const images = imageProvider('gpt-image-2', 0.053); // priced model: about $0.053 per 1024x1024 image
+  const res = await run(env, fakeProvider([msg([use('toolu_1', 'generate_image', { title: 'x', prompt: 'p', size: '1024x1024' })], 'tool_use'), done()]), undefined, {
+    ctxBase: { config: {}, imageProvider: images.provider },
+  });
+  assert.equal(images.calls.length, 0);
+  assert.equal(res.outcome, 'completed');
+  const result = payloads(env.store, 'tool.result')[0];
+  assert.equal(result.ok, false);
+  assert.match(result.output, /not generated: this image costs about \$0\.053, more than the \$0\.044 left/);
+  assert.equal(payloads(env.store, 'spend.recorded').length, 0);
+});
+
+// ---- fallback responses (RT-5, TL-9) ----------------------------------------------------------
+
+test('a response served by an unlisted fallback model is still recorded and billed (never $0)', async () => {
+  const env = setup('pixel', { runBudgetUsd: 10 });
+  const usage = {
+    input_tokens: 101_000,
+    output_tokens: 19_900,
+    iterations: [
+      { type: 'message', model: 'claude-opus-5-5', input_tokens: 1000, output_tokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-5-6', input_tokens: 100_000, output_tokens: 19_900 },
+    ],
+  };
+  const res = await run(env, fakeProvider([msg([text('answer')], 'end_turn', { usage })]), fakeToolset());
+  assert.equal(res.outcome, 'completed');
+  const [step] = payloads(env.store, 'run.step');
+  assert.ok(step.costUsd > 0.99, `billed at the highest known rate, got ${step.costUsd}`);
+  assert.equal(step.servedModel, 'claude-opus-5-6');
+  assert.equal(env.store.state.spend.totalUsd, step.costUsd);
+  assert.ok(payloads(env.store, 'log').some((l) => l.level === 'warn' && /claude-opus-5-6 have no price/.test(l.message)));
+});
+
+test('fallback spend is credited to the model that served it, and the run says who answered', async () => {
+  const env = setup();
+  const usage = {
+    input_tokens: 2000,
+    output_tokens: 1000,
+    iterations: [
+      { type: 'message', model: 'claude-opus-5-5', input_tokens: 1000, output_tokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-4-8', input_tokens: 1000, output_tokens: 1000 },
+    ],
+  };
+  await run(env, fakeProvider([msg([text('answer')], 'end_turn', { usage, model: 'claude-opus-4-8' })]), fakeToolset());
+  const [step] = payloads(env.store, 'run.step');
+  assert.deepEqual(Object.keys(step.costByModel).sort(), ['claude-opus-4-8', 'claude-opus-5-5']);
+  const byModel = env.store.state.spend.byModel;
+  assert.ok(Math.abs(byModel['claude-opus-5-5'] - 0.004) < 1e-12, 'only the declined attempt is booked to the requested model');
+  assert.ok(Math.abs(byModel['claude-opus-4-8'] - 0.03) < 1e-12);
+  assert.deepEqual(env.store.state.runs.run_1.servedModels, ['claude-opus-4-8']);
+  assert.deepEqual(finished(env.store).servedModels, ['claude-opus-4-8']);
+  assert.match(env.store.state.feed.find((f) => f.type === 'run.finished').text, /served by claude-opus-4-8, fallback/);
+});
+
+test('summarize gets the run ctx, so an approval card can say what granting really does (TL-6)', async () => {
+  const env = setup();
+  const tools = fakeToolset({
+    publish_listing: { ...fakeToolset().TOOLS.publish_listing, summarize: (input, ctx) => `mode for ${ctx?.runId}: ${ctx?.connectors?.etsy?.configured ? 'etsy' : 'dry run'}` },
+  });
+  await run(env, fakeProvider([msg([use('toolu_p', 'publish_listing', { text: 'x' })], 'tool_use'), done()]), tools, {
+    ctxBase: { config: {}, connectors: { etsy: { configured: false } } },
+  });
+  assert.equal(payloads(env.store, 'approval.requested')[0].summary, 'mode for run_1: dry run');
+});

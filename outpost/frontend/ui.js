@@ -6,7 +6,7 @@
 // event; the UI never optimistically flips state. DOM is built with createElement +
 // textContent only: model, artifact and config strings never reach innerHTML.
 
-import { evidenceCoverage, netCents } from '/shared/projector.js';
+import { anthropicStatus, coverageCaveat, entryCurrency, evidenceCoverage, isWebTainted, netCents } from '/shared/projector.js';
 import { OBJECT_GRANTS, INTRINSIC_TOOLS } from '/shared/grants.js';
 
 const RECIPES = ['pod_listing', 'thumbnail_order', 'competitor_scan', 'ledger_report'];
@@ -132,6 +132,16 @@ function cents(c) {
   return `${v < 0 ? '−' : ''}$${(Math.abs(v) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 const negCents = (c) => (Number(c) ? `−${cents(c)}` : cents(0));
+/** An amount in its own currency (minor units ×100, as the ledger stores them); USD keeps '$'. */
+function money(c, currency = 'USD') {
+  if (currency === 'USD') return cents(c);
+  const v = (Number(c) || 0) / 100;
+  try {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency, currencyDisplay: 'code' }).format(v).replace('-', '−');
+  } catch {
+    return `${v < 0 ? '−' : ''}${Math.abs(v).toFixed(2)} ${currency}`;
+  }
+}
 /** Floor, so coverage is never overstated. */
 const pct = (x) => (x === null || x === undefined || !Number.isFinite(x) ? '—' : `${Math.floor(x * 100)}%`);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
@@ -176,6 +186,10 @@ const agentName = (st, id) => st.agents?.[id]?.name || id || '—';
 const lanesOf = (st, roomId) => (st.station?.hallways || []).filter((hw) => hw.a === roomId || hw.b === roomId);
 const usersOf = (st, objectId) => agentList(st).filter((a) => a.status === 'tool' && a.objectId === objectId);
 const activeRuns = (st) => Object.values(st.runs || {}).filter((r) => r.outcome === null);
+/** Provenance of a record, read from the run that produced it (state.runs[...].provider). */
+const isScriptedRun = (st, runId) => Boolean(runId) && st.runs?.[runId]?.provider === 'scripted';
+const scriptedRuns = (st) => Object.values(st.runs || {}).filter((r) => r.provider === 'scripted');
+const SCRIPTED_TITLE = 'Produced by a scripted run (run.started provider = scripted): the decisions and text were scripted, no language model was called.';
 const pendingApprovals = (st) => Object.values(st.approvals || {}).filter((a) => a.status === 'pending');
 const roomOfAgent = (st, agentId) => roomById(st, st.agents?.[agentId]?.room);
 const objectTypes = (room) => new Set((room?.objects || []).map((o) => o.type));
@@ -347,6 +361,39 @@ export function createUI(root, client, world) {
     return h('span', { class: 'badge prov-claim', title: 'An agent said so. Displayed, never summed into counted totals.', text: 'CLAIM · NOT COUNTED' });
   }
 
+  // ---- web taint (taint / taintSources on artifacts, approvals, runs, memory notes) ----------
+
+  const TAINT_TITLE = 'Derived from web pages (web_search / web_fetch), directly or through a tainted input. Web content can carry injected instructions.';
+
+  /** SCRIPTED marker for a record whose run was scripted (provenance per record, not per mode). */
+  function scriptedMark(scripted) {
+    return scripted ? h('span', { class: 'badge b-warn scripted-mark', title: SCRIPTED_TITLE, text: 'SCRIPTED' }) : null;
+  }
+
+  /** Small amber marker for lists; null when the record is clean. */
+  function taintMark(rec, text = 'WEB') {
+    return isWebTainted(rec) ? h('span', { class: 'taint-mark', title: TAINT_TITLE, text }) : null;
+  }
+
+  /** The recorded taint sources: artifact ids open the viewer; the rest are labelled. */
+  function taintSources(sources, onArtifact) {
+    const list = Array.isArray(sources) && sources.length ? sources : ['web'];
+    return h(
+      'span',
+      { class: 'taint-sources' },
+      list.map((src, i) => {
+        const a = S().artifacts[src];
+        let el;
+        if (src === 'web') el = h('span', { text: 'web search / fetch' });
+        else if (a) el = h('button', { type: 'button', class: 'link mono', title: `${a.kind} "${a.title}" by ${agentName(S(), a.agentId)}`, on: { click: () => onArtifact(src) } }, src);
+        else if (src.startsWith('memory:')) el = h('span', { text: `memory note ${src.slice(7)}` });
+        else if (S().runs[src]) el = h('span', { class: 'mono', text: `run ${src}` });
+        else el = h('span', { class: 'mono', text: src });
+        return [i ? ', ' : null, el];
+      }),
+    );
+  }
+
   function setResult(el, kind, text) {
     el.className = `result r-${kind}`;
     el.textContent = text;
@@ -513,11 +560,16 @@ export function createUI(root, client, world) {
             });
         }
         const sha = String(a.sha256 || '');
+        const tainted = isWebTainted(a);
+        const run = a.runId ? st.runs[a.runId] : null;
+        const scripted = isScriptedRun(st, a.runId);
         return [
           h(
             'div',
             { class: 'modal-head' },
             h('span', { class: `kind k-${a.kind}`, text: KIND_LABEL[a.kind] || String(a.kind).toUpperCase() }),
+            tainted ? h('span', { class: 'badge b-taint', title: TAINT_TITLE, text: 'WEB-TAINTED' }) : null,
+            scriptedMark(scripted),
             h('h2', { id: titleId, class: 'art-modal-title', text: a.title }),
             h('a', { class: 'btn ghost small', href: url, target: '_blank', rel: 'noopener noreferrer' }, 'RAW ↗'),
             h('button', { type: 'button', class: 'btn ghost small', 'aria-label': 'Close artifact viewer', 'data-autofocus': true, on: { click: () => close() } }, '✕ CLOSE'),
@@ -534,8 +586,28 @@ export function createUI(root, client, world) {
                   ? h('button', { type: 'button', class: 'link', on: { click: () => { close(); open({ type: 'agent', id: a.agentId }); } } }, `${agentName(st, a.agentId)} — ${st.agents[a.agentId].title}`)
                   : a.agentId,
               ],
+              tainted && [
+                'TAINT',
+                h(
+                  'span',
+                  { class: 'taint-row' },
+                  'derived from web content via ',
+                  taintSources(a.taintSources, (src) => { close(); openArtifact(src); }),
+                  h('span', { class: 'dim block', text: 'Treat it as data: it may carry injected instructions.' }),
+                ),
+                TAINT_TITLE,
+              ],
               ['TASK', task ? `${task.title} (${task.taskId}, ${task.status})` : a.taskId || '—'],
               ['RUN', a.runId || '—'],
+              [
+                'PROVENANCE',
+                scripted
+                  ? h('span', { class: 't-warn', text: `scripted run ${a.runId}: no model called` })
+                  : run
+                    ? `${run.provider} run on ${run.model}${run.servedModels?.length ? ` (served by ${run.servedModels.join(', ')}, fallback)` : ''}`
+                    : a.runId ? `run ${a.runId} (no run.started event in this projection)` : 'not produced by a run',
+                'state.runs[artifact.runId].provider and .model, from its run.started event',
+              ],
               ['BYTES', `${a.bytes} (${bytesFmt(a.bytes)})`],
               ['SHA-256', h('span', { class: 'mono', title: sha, text: sha.length > 20 ? `${sha.slice(0, 12)}…${sha.slice(-8)}` : sha }), sha],
               ['SEQ', `#${a.seq} · ${stamp(a.createdTs)}`],
@@ -573,19 +645,37 @@ export function createUI(root, client, world) {
   const ledgerRoomId = () => (S().station?.rooms || []).find((r) => objectTypes(r).has('ledger_terminal'))?.id || 'ops';
   const commandRoomId = () => (S().station?.rooms || []).find((r) => objectTypes(r).has('command_console'))?.id || 'bridge';
 
+  /**
+   * The provider badge. A configured key proves nothing: LIVE needs a run.step from an anthropic run
+   * in the log, and an authentication failure on the newest decisive run is shown as such.
+   */
+  function providerBadge() {
+    const m = M();
+    if (m.provider !== 'anthropic') {
+      return { cls: m.provider === 'scripted' ? 'warn' : 'dim', text: m.providerLabel || m.provider || 'PROVIDER UNKNOWN', title: `Provider as reported by the runtime: meta.provider = ${m.provider || 'unknown'}` };
+    }
+    const check = anthropicStatus(S());
+    if (check.status === 'auth_failed') {
+      return { cls: 'danger', text: 'ANTHROPIC API · LAST CALL FAILED: AUTH', title: `meta.provider = anthropic, but run ${check.runId} failed authentication: ${check.error}` };
+    }
+    if (check.status === 'verified') {
+      return { cls: 'ok', text: 'LIVE · Anthropic API', title: `meta.provider = anthropic, and run ${check.runId} recorded a provider step (run.step), so the key works.` };
+    }
+    return { cls: 'warn', text: 'ANTHROPIC API · key set, not yet verified', title: 'meta.provider = anthropic because a key is configured; no anthropic run has recorded a provider step yet, so the key is unverified.' };
+  }
+
   const topbar = (() => {
-    const brand = live('div', { class: 'brand' }, () => J([S().station?.name, M().providerLabel, M().provider]), () => [
-      h('span', { class: 'logo', 'aria-hidden': 'true', text: '▚▞' }),
-      h('h1', { class: 'station-name', text: S().station?.name || 'NO STATION LOADED' }),
-      h('span', {
-        class: `badge provider ${M().provider === 'scripted' ? 'warn' : 'ok'}`,
-        title: `Provider as reported by the runtime: meta.provider = ${M().provider || 'unknown'}`,
-        text: M().providerLabel || M().provider || 'PROVIDER UNKNOWN',
-      }),
-    ]);
+    const brand = live('div', { class: 'brand' }, () => J([S().station?.name, M().providerLabel, M().provider, M().provider === 'anthropic' && anthropicStatus(S())]), () => {
+      const badge = providerBadge();
+      return [
+        h('span', { class: 'logo', 'aria-hidden': 'true', text: '▚▞' }),
+        h('h1', { class: 'station-name', text: S().station?.name || 'NO STATION LOADED' }),
+        h('span', { class: `badge provider ${badge.cls}`, title: badge.title, text: badge.text }),
+      ];
+    });
     const link = h('span', { class: 'link-ind', role: 'status' });
     const runs = chip('ACTIVE RUNS', () => open({ type: 'room', id: commandRoomId() }));
-    const today = chip('SPEND TODAY', () => open({ type: 'room', id: ledgerRoomId() }));
+    const today = chip('SPEND TODAY (UTC)', () => open({ type: 'room', id: ledgerRoomId() }));
     const total = chip('SPEND TOTAL', () => open({ type: 'room', id: ledgerRoomId() }));
     const revenue = chip('VERIFIED REVENUE', () => open({ type: 'room', id: ledgerRoomId() }), 'chip-rev');
     const approvals = chip('APPROVALS', () => open({ type: 'approvals' }), 'chip-appr');
@@ -613,37 +703,49 @@ export function createUI(root, client, world) {
       const st = S();
       updateLink();
       brand.update();
+      // Link down: these are the last values the stream delivered, not the station now.
+      const stale = client.link !== 'live';
+      const staleNote = stale ? ' LAST KNOWN VALUE: the event stream is down, so this may be out of date.' : '';
       const ar = activeRuns(st);
       runs.set(
         String(ar.length),
-        ar.length ? ar.map((r) => agentName(st, r.agentId)).join(' ') : 'none',
-        `ACTIVE RUNS = runs with a run.started event and no run.finished yet (state.runs where outcome is null).${ar.length ? ` Now: ${ar.map((r) => `${r.runId} (${r.agentId})`).join(', ')}.` : ''}`,
-        ar.length ? 'on' : '',
+        `${ar.length ? ar.map((r) => agentName(st, r.agentId)).join(' ') : 'none'}${stale ? ' · last known' : ''}`,
+        `ACTIVE RUNS = runs with a run.started event and no run.finished yet (state.runs where outcome is null).${ar.length ? ` Now: ${ar.map((r) => `${r.runId} (${r.agentId})`).join(', ')}.` : ''}${staleNote}`,
+        stale ? 'stale' : ar.length ? 'on' : '',
       );
       const day = utcDay();
       const cap = st.station?.budgets?.stationDailyUsd;
       const spentToday = st.spend.byDay[day] || 0;
       today.set(
         usd(spentToday),
-        typeof cap === 'number' ? `of ${usd(cap)} cap` : '',
-        `SPEND TODAY = run.step costUsd (priced by sidecar/pricing.js) + spend.recorded usd, for events timestamped ${day} (UTC).${typeof cap === 'number' ? ` Cap = station.budgets.stationDailyUsd from the layout.` : ''}`,
-        typeof cap === 'number' && spentToday >= cap ? 'danger' : '',
+        typeof cap === 'number' ? `of ${usd(cap)} cap` : day,
+        `SPEND TODAY (UTC) = run.step costUsd (priced by sidecar/pricing.js) + spend.recorded usd, for events timestamped ${day} (UTC day; it rolls over at 00:00 UTC).${typeof cap === 'number' ? ` Cap = station.budgets.stationDailyUsd from the layout.` : ''}${staleNote}`,
+        stale ? 'stale' : typeof cap === 'number' && spentToday >= cap ? 'danger' : '',
       );
+      const scriptedSteps = st.spend.scriptedSteps || 0;
       total.set(
         usd(st.spend.totalUsd),
-        plural(st.spend.steps, 'step'),
-        'SPEND TOTAL = every run.step costUsd + spend.recorded usd in the event log (LLM + image). Reported separately; not subtracted from NET COUNTED.',
+        scriptedSteps && scriptedSteps === st.spend.steps ? plural(scriptedSteps, 'scripted step') : `${plural(st.spend.steps, 'step')}${scriptedSteps ? ` · ${scriptedSteps} scr.` : ''}`,
+        `SPEND TOTAL = every run.step costUsd + spend.recorded usd in the event log (LLM + image). Reported separately; not subtracted from NET COUNTED.${scriptedSteps ? ` ${scriptedSteps} of the ${st.spend.steps} steps are from scripted runs: no model was called and they cost $0.` : ''}${staleNote}`,
+        stale ? 'stale' : '',
       );
       const t = st.ledger.totals;
       const cov = evidenceCoverage(t);
+      const caveat = coverageCaveat(t);
+      const other = Object.entries(st.ledger.unconverted || {});
       revenue.set(
         cents(t.verifiedRevenueCents),
-        `EVIDENCE ${pct(cov)}`,
-        "VERIFIED REVENUE = ledger.entry revenue minus refunds with provenance 'connector' (fetched from a platform API, each carrying source.externalId). EVIDENCE = verified ÷ (verified + operator-entered) counted revenue, rounded down; '—' when nothing is counted. Agent claims are never included.",
-        cov === null ? '' : 'gold',
+        `EVIDENCE ${caveat ? 'n/a' : pct(cov)}${other.length ? ` +${other.map(([cur]) => cur).join('/')}` : ''}`,
+        `VERIFIED REVENUE = ledger.entry revenue minus refunds with provenance 'connector' (fetched from a platform API, each carrying source.externalId), in USD. EVIDENCE = verified ÷ (verified + operator-entered) counted revenue, each floored at zero, rounded down; '—' when nothing is counted${caveat ? `; now n/a because ${caveat}` : ''}. It covers revenue only: fees, costs and LLM/image spend are outside it. Agent claims are never included.${other.length ? ` Entries in ${other.map(([cur, u]) => `${cur} (${u.entries})`).join(', ')} are not converted and are excluded from every total.` : ''}${staleNote}`,
+        stale ? 'stale' : cov === null && !caveat ? '' : 'gold',
       );
       const pend = pendingApprovals(st).length;
-      approvals.set(String(pend), pend ? 'pending' : 'none pending', "APPROVALS = approval.requested events with no approval.resolved yet (status 'pending').", pend ? 'warn' : '');
+      approvals.set(
+        String(pend),
+        `${pend ? 'pending' : 'none pending'}${stale ? ' · last known' : ''}`,
+        `APPROVALS = approval.requested events with no approval.resolved yet (status 'pending').${stale ? ' Deciding is disabled until the event stream is back.' : ''}${staleNote}`,
+        stale ? 'stale' : pend ? 'warn' : '',
+      );
       const sig = J([st.estop]);
       if (sig !== estopSig) {
         estopSig = sig;
@@ -680,8 +782,16 @@ export function createUI(root, client, world) {
   const banners = live(
     'div',
     { class: 'banners' },
-    () => J([M().provider, S().estop, client.link === 'reconnecting', client.linkDetail]),
+    () => J([M().provider, M().storeFailed, S().estop, client.link === 'reconnecting', client.linkDetail, M().provider !== 'scripted' && scriptedRuns(S()).length]),
     () => [
+      M().storeFailed
+        ? h(
+            'div',
+            { class: 'banner danger', role: 'alert' },
+            h('strong', { text: 'RECORDING STOPPED' }),
+            ` — the event log failed a write (${M().storeFailed}). Nothing new is recorded or started, so this view shows the last recorded state; runs it shows as running are not. Free the disk and restart the sidecar.`,
+          )
+        : null,
       M().provider === 'scripted'
         ? h(
             'div',
@@ -689,7 +799,14 @@ export function createUI(root, client, world) {
             h('strong', { text: 'SCRIPTED DEMO' }),
             ' — tools, files, events and approvals are real; agent decisions are scripted, no model is called. Set ANTHROPIC_API_KEY to run live agents.',
           )
-        : null,
+        : scriptedRuns(S()).length
+          ? h(
+              'div',
+              { class: 'banner warn', role: 'note' },
+              h('strong', { text: 'SCRIPTED RECORDS IN THIS LOG' }),
+              ` — this log contains ${plural(scriptedRuns(S()).length, 'scripted run')}: records marked SCRIPTED were produced without a model.`,
+            )
+          : null,
       S().estop ? h('div', { class: 'banner danger', role: 'alert' }, h('strong', { text: 'E-STOP ENGAGED' }), ' — all runs halted; no new run starts until released.') : null,
       client.link === 'reconnecting'
         ? h('div', { class: 'banner danger', role: 'alert' }, h('strong', { text: 'LINK LOST' }), ` — reconnecting to the event stream (${client.linkDetail || 'retrying'}). The view is frozen at seq #${S().seq} and may be stale.`)
@@ -733,7 +850,7 @@ export function createUI(root, client, world) {
         { type: 'button', class: 'art-btn', k: `art:${a.artifactId}`, on: { click: () => openArtifact(a.artifactId) } },
         h('span', { class: `kind k-${a.kind}`, text: KIND_LABEL[a.kind] || String(a.kind).toUpperCase() }),
         h('span', { class: 'art-title', text: a.title }),
-        h('span', { class: 'art-meta', text: `${agentName(S(), a.agentId)} · ${bytesFmt(a.bytes)} · #${a.seq} ${hms(a.createdTs)}` }),
+        h('span', { class: 'art-meta' }, scriptedMark(isScriptedRun(S(), a.runId)), taintMark(a), `${agentName(S(), a.agentId)} · ${bytesFmt(a.bytes)} · #${a.seq} ${hms(a.createdTs)}`),
       ),
     );
   }
@@ -775,7 +892,7 @@ export function createUI(root, client, world) {
                 { type: 'button', class: 'thumb', k: `thumb:${a.artifactId}`, title: `${a.title} — open viewer`, on: { click: () => openArtifact(a.artifactId) } },
                 h('span', { class: 'thumb-frame' }, h('img', { src: client.artifactUrl(a.artifactId), alt: a.title, loading: 'lazy', decoding: 'async' })),
                 h('span', { class: 'thumb-cap', text: a.title }),
-                h('span', { class: 'thumb-meta', text: `${KIND_LABEL[a.kind] || a.kind} · ${agentName(S(), a.agentId)} · #${a.seq}` }),
+                h('span', { class: 'thumb-meta' }, scriptedMark(isScriptedRun(S(), a.runId)), taintMark(a), `${KIND_LABEL[a.kind] || a.kind} · ${agentName(S(), a.agentId)} · #${a.seq}`),
               ),
             ),
           ),
@@ -857,7 +974,7 @@ export function createUI(root, client, world) {
           () => {
             const p = pendingApprovals(S());
             return [
-              p.length ? h('ul', { class: 'list' }, p.map((ap) => h('li', { class: 'appr-line' }, h('span', { class: 'pill st-awaiting_approval', text: ap.tool }), ` ${agentName(S(), ap.agentId)}: ${ap.summary}`))) : empty('No approval is pending.'),
+              p.length ? h('ul', { class: 'list' }, p.map((ap) => h('li', { class: 'appr-line' }, h('span', { class: 'pill st-awaiting_approval', text: ap.tool }), ' ', taintMark(ap, 'WEB-DERIVED'), `${agentName(S(), ap.agentId)}: ${ap.summary}`))) : empty('No approval is pending.'),
               h('button', { type: 'button', class: 'btn small', k: 'open-approvals', on: { click: () => open({ type: 'approvals' }) } }, 'OPEN APPROVALS'),
             ];
           },
@@ -1092,7 +1209,7 @@ export function createUI(root, client, world) {
         v.live(
           'ul',
           { class: 'list' },
-          () => J(Object.values(S().recipes).map((r) => [r.recipeRunId, r.taskIds.map((t) => S().tasks[t]?.status)])),
+          () => J([Object.values(S().recipes).map((r) => [r.recipeRunId, r.taskIds.map((t) => S().tasks[t]?.status)]), Object.keys(S().runs).length]),
           () => {
             const st = S();
             const runs = Object.values(st.recipes).reverse().slice(0, 6);
@@ -1101,10 +1218,11 @@ export function createUI(root, client, world) {
               const statuses = r.taskIds.map((t) => st.tasks[t]?.status || 'unknown');
               const done = statuses.filter((s) => s === 'done').length;
               const bad = statuses.filter((s) => s === 'failed' || s === 'cancelled').length;
+              const scripted = Object.values(st.tasks).some((t) => t.recipeRunId === r.recipeRunId && t.runIds.some((id) => isScriptedRun(st, id)));
               return h(
                 'li',
                 { class: 'recipe-run' },
-                h('div', { class: 'row' }, h('span', { class: 'strong', text: r.title })),
+                h('div', { class: 'row' }, h('span', { class: 'strong', text: r.title }), scriptedMark(scripted)),
                 h('div', { class: 'sub', text: `${r.recipe} · ${r.recipeRunId} · started ${hms(r.startedTs)} · ${done}/${statuses.length} tasks done${bad ? ` · ${bad} failed/cancelled` : ''}` }),
               );
             });
@@ -1144,10 +1262,11 @@ export function createUI(root, client, world) {
   }
 
   function taskItem(t) {
+    const scripted = t.runIds.some((id) => isScriptedRun(S(), id));
     return h(
       'li',
       { class: `task ts-${t.status}` },
-      h('div', { class: 'row' }, h('span', { class: 'mono dim', text: t.taskId }), h('span', { class: 'strong', text: t.title }), t.kind === 'review' ? h('span', { class: 'tag', text: 'REVIEW' }) : null),
+      h('div', { class: 'row' }, h('span', { class: 'mono dim', text: t.taskId }), h('span', { class: 'strong', text: t.title }), t.kind === 'review' ? h('span', { class: 'tag', text: 'REVIEW' }) : null, scriptedMark(scripted)),
       h(
         'div',
         { class: 'sub' },
@@ -1240,7 +1359,15 @@ export function createUI(root, client, world) {
                 'div',
                 { class: `mem-ns${ns === roomId ? ' own' : ''}` },
                 h('div', { class: 'row' }, h('span', { class: 'strong mono', text: ns }), room ? h('span', { class: 'dim', text: room.name }) : null, h('span', { class: 'dim', text: `${plural(mem[ns].writes, 'write')}` })),
-                keys.length ? h('ul', { class: 'list mem-keys' }, keys.map(([k, b]) => h('li', {}, h('code', { class: 'tool', text: k }), h('span', { class: 'dim', text: ` ${bytesFmt(b)}` })))) : empty('no keys'),
+                keys.length
+                  ? h('ul', { class: 'list mem-keys' }, keys.map(([k, b]) => h(
+                    'li',
+                    {},
+                    h('code', { class: 'tool', text: k }),
+                    h('span', { class: 'dim', text: ` ${bytesFmt(b)} ` }),
+                    taintMark(Object.hasOwn(mem[ns].tainted || {}, k) ? { taint: 'web' } : null),
+                  )))
+                  : empty('no keys'),
               );
             });
           },
@@ -1305,18 +1432,43 @@ export function createUI(root, client, world) {
       v.live(
         'div',
         { class: 'net' },
-        () => J(L().totals),
+        () => J([L().totals, L().unconverted]),
         () => {
           const t = L().totals;
-          return kv([
-            ['FEES', negCents(t.feesCents), "ledger.entry kind 'fee' (connector + manual)"],
-            ['COSTS', negCents(t.costCents), "ledger.entry kind 'cost' (connector + manual)"],
-            ['NET COUNTED', h('span', { class: 'strong big', text: cents(netCents(t)) }), 'verified + operator-entered − fees − costs. Agent claims and LLM spend are excluded.'],
-            ['EVIDENCE COVERAGE', pct(evidenceCoverage(t)), "verified ÷ (verified + operator-entered), rounded down; '—' when nothing is counted"],
-          ]);
+          const cov = evidenceCoverage(t);
+          const caveat = coverageCaveat(t);
+          const other = Object.entries(L().unconverted || {});
+          return [
+            kv([
+              ['FEES', negCents(t.feesCents), "ledger.entry kind 'fee' (connector + manual)"],
+              ['COSTS', negCents(t.costCents), "ledger.entry kind 'cost' (connector + manual)"],
+              ['NET COUNTED', h('span', { class: 'strong big', text: cents(netCents(t)) }), 'verified + operator-entered − fees − costs. Agent claims and LLM/image spend are excluded.'],
+              [
+                'EVIDENCE COVERAGE',
+                caveat
+                  ? h('span', { class: 't-warn', text: `n/a: ${caveat}` })
+                  : h('span', {}, pct(cov), h('span', { class: 'dim', text: cov === null ? ' no counted revenue yet' : ' of counted revenue' })),
+                "verified ÷ (verified + operator-entered) revenue, each net of its refunds and floored at zero, rounded down; '—' when no revenue is counted, n/a when a provenance's refunds exceed its revenue. Fees and costs are not part of it.",
+              ],
+            ]),
+            other.length
+              ? h(
+                  'p',
+                  { class: 'unconverted t-warn', title: 'Nothing converts currencies, so these entries are listed in ENTRIES in their own currency and left out of every total above.' },
+                  `${other.map(([cur, u]) => `${plural(u.entries, `${cur} entry`).replace(/entrys$/, 'entries')}`).join(', ')} not converted, excluded from totals (all figures above are USD): `,
+                  other.map(([cur, u], i) => `${i ? '; ' : ''}${cur} verified ${money(u.verifiedRevenueCents, cur)}, operator ${money(u.operatorRevenueCents, cur)}, fees ${money(u.feesCents, cur)}`).join(''),
+                )
+              : null,
+          ];
         },
       ),
-      h('p', { class: 'help', text: 'NET COUNTED = verified + operator-entered − fees − costs. Agent claims are shown, never summed. LLM/image spend is reported below, separately.' }),
+      h(
+        'ul',
+        { class: 'help ledger-honesty' },
+        h('li', { text: 'EVIDENCE COVERAGE covers revenue only: the share of counted revenue fetched by a connector. Fees and costs are not covered by it.' }),
+        h('li', { text: 'NET COUNTED excludes LLM and image spend. That spend is real money and is shown separately under LLM / IMAGE SPEND below.' }),
+        h('li', { text: 'NET COUNTED = verified + operator-entered − fees − costs. Agent claims are shown, never summed.' }),
+      ),
       sec(
         'BY STREAM',
         null,
@@ -1394,7 +1546,8 @@ export function createUI(root, client, world) {
               const e = Ld.entries[eid];
               if (!e) continue;
               const negative = e.kind !== 'revenue';
-              const amt = `${negative ? '−' : ''}${cents(e.amountCents)}`;
+              const currency = entryCurrency(e);
+              const amt = `${negative ? '−' : ''}${money(e.amountCents, currency)}`;
               const src = e.source || {};
               const srcText = src.connector && src.externalId ? `${src.connector}:${src.externalId}` : src.url || src.note || '—';
               rows.push(
@@ -1405,7 +1558,14 @@ export function createUI(root, client, world) {
                     'td',
                     {},
                     h('div', { class: 'entry-line' }, h('span', { class: 'mono', text: ymd(e.occurredAt) }), ` · ${e.stream} · ${e.kind}`),
-                    h('div', { class: 'entry-meta' }, provBadge(e.provenance), h('span', { class: 'mono dim', text: ` #${e.seq} ${srcText}` }), e.memo ? h('span', { class: 'dim', text: ` · ${e.memo}` }) : null),
+                    h(
+                      'div',
+                      { class: 'entry-meta' },
+                      provBadge(e.provenance),
+                      currency === 'USD' ? null : h('span', { class: 'badge b-warn', title: 'Not converted: excluded from every USD total.', text: `${currency} · NOT IN TOTALS` }),
+                      h('span', { class: 'mono dim', text: ` #${e.seq} ${srcText}` }),
+                      e.memo ? h('span', { class: 'dim', text: ` · ${e.memo}` }) : null,
+                    ),
                   ),
                   h('td', { class: 'num amount' }, e.provenance === 'agent_claim' ? h('s', { text: amt }) : amt),
                 ),
@@ -1425,7 +1585,7 @@ export function createUI(root, client, world) {
     const syncBtn = h('button', { type: 'button', class: 'btn' }, 'SYNC ETSY');
     syncBtn.addEventListener('click', () =>
       act(syncBtn, syncOut, () => client.post('/api/connectors/etsy/sync', {}), (res) =>
-        `SYNC ACCEPTED${typeof res.fetched === 'number' ? ` · fetched ${res.fetched}, new ${res.newEntries ?? 0}` : ''}. Entries appear as ledger.entry events arrive.`,
+        `SYNC ACCEPTED${res.receipts ? ` · receipts fetched ${res.receipts.fetched}, new ${res.receipts.newEntries}` : typeof res.fetched === 'number' ? ` · fetched ${res.fetched}, new ${res.newEntries ?? 0}` : ''}${res.fees ? ` · fee lines fetched ${res.fees.fetched}, new ${res.fees.newEntries}` : ''}. Entries appear as ledger.entry events arrive.`,
       ),
     );
     v.add(
@@ -1441,9 +1601,20 @@ export function createUI(root, client, world) {
             const c = S().connectors.etsy;
             return kv([
               ['ETSY', configured ? h('span', { class: 'badge b-ok', text: 'CONFIGURED' }) : h('span', { class: 'badge b-warn', text: 'NOT CONFIGURED' }), 'meta.connectors.etsy.configured'],
-              configured ? null : ['SETUP', 'set ETSY_API_KEY, ETSY_ACCESS_TOKEN and ETSY_SHOP_ID, then restart'],
+              configured ? null : ['SETUP', M().connectors?.etsy?.setup || 'see the sidecar banner for the Etsy settings', 'meta.connectors.etsy.setup (sidecar/connectors/etsy.js ETSY_SETUP_HINT)'],
               ['LAST SYNC', c ? `${stamp(c.lastSyncTs)} · ${c.ok ? 'OK' : 'FAILED'}` : 'never (no connector.sync event)'],
-              c ? ['RESULT', `fetched ${c.fetched} · new ${c.newEntries} · ${plural(c.syncs, 'sync')} total`] : null,
+              c
+                ? [
+                    'RESULT',
+                    c.receipts || c.fees
+                      ? [
+                          c.receipts ? `receipts fetched ${c.receipts.fetched} · new ${c.receipts.newEntries}` : null,
+                          c.fees ? `fee lines fetched ${c.fees.fetched} · new ${c.fees.newEntries}` : null,
+                          plural(c.syncs, 'sync') + ' total',
+                        ].filter(Boolean).join(' · ')
+                      : `fetched ${c.fetched} · new ${c.newEntries} · ${plural(c.syncs, 'sync')} total`,
+                  ]
+                : null,
               c && c.error ? ['ERROR', h('span', { class: 't-danger', text: c.error })] : null,
             ]);
           },
@@ -1530,15 +1701,38 @@ export function createUI(root, client, world) {
       v.live(
         'div',
         {},
-        () => J([A().status, A().detail, A().tool, A().taskId, A().taskId && S().tasks[A().taskId]?.status, A().runs, A().spentUsd, M().provider, A().room]),
+        () => J([A().status, A().detail, A().tool, A().taskId, A().taskId && S().tasks[A().taskId]?.status, A().runs, A().spentUsd, M().provider, M().modelOverride, A().room, A().model]),
         () => {
           const a = A();
           const st = S();
           const room = roomOfAgent(st, id);
           const task = a.taskId ? st.tasks[a.taskId] : null;
           const scripted = M().provider === 'scripted';
+          const override = !scripted && M().modelOverride ? M().modelOverride : null;
+          const myRuns = Object.values(st.runs).filter((r) => r.agentId === id);
+          const lastRun = myRuns.at(-1);
+          const scriptedCount = myRuns.filter((r) => r.provider === 'scripted').length;
+          // MODEL = what this agent's next run uses (from meta); LAST RUN = what its runs really used.
+          const modelRow = scripted
+            ? ['MODEL', h('span', {}, 'scripted', h('span', { class: 'dim', text: ` · configured ${a.model || '—'}, not called` })), 'meta.provider is scripted: decisions come from sidecar/providers/scripts.js']
+            : override
+              ? ['MODEL', h('span', {}, override, h('span', { class: 'dim', text: ` · OUTPOST_MODEL override; layout says ${a.model || '—'}` })), 'meta.modelOverride (OUTPOST_MODEL) applies to every agent']
+              : ['MODEL', a.model || '—', 'agent.model from the station layout (no OUTPOST_MODEL override)'];
           return kv([
-            ['MODEL', scripted ? h('span', {}, 'scripted', h('span', { class: 'dim', text: ` · configured ${a.model || '—'}, not called` })) : a.model || '—', scripted ? 'meta.provider is scripted: decisions come from sidecar/providers/scripts.js' : 'agent.model from the station layout'],
+            modelRow,
+            lastRun
+              ? [
+                  'LAST RUN',
+                  h(
+                    'span',
+                    {},
+                    `${lastRun.model} [${lastRun.provider}]`,
+                    lastRun.servedModels?.length ? h('span', { class: 't-warn', text: ` · served by ${lastRun.servedModels.join(', ')} (fallback)` }) : null,
+                    scriptedCount ? h('span', { class: 'dim block', text: `${scriptedCount} of ${plural(myRuns.length, 'run')} scripted: no model called` }) : null,
+                  ),
+                  `run.started of ${lastRun.runId}: the model and provider that run really used`,
+                ]
+              : null,
             ['EFFORT', a.effort || '—'],
             ['ROOM', room ? h('span', {}, roomLink(room.id), h('span', { class: 'dim block', text: room.purpose })) : a.room || '—'],
             ['STATUS', h('span', {}, statusPill(a), a.detail ? h('span', { class: 'dim block', text: a.detail }) : null), `last agent.status at seq #${a.lastSeq || '—'}`],
@@ -1557,7 +1751,7 @@ export function createUI(root, client, world) {
         v.live(
           'div',
           { class: 'tbl-wrap' },
-          () => J(Object.values(S().runs).filter((r) => r.agentId === id).slice(-8).map((r) => [r.runId, r.outcome, r.turns, r.costUsd, r.summary, r.error])),
+          () => J(Object.values(S().runs).filter((r) => r.agentId === id).slice(-8).map((r) => [r.runId, r.outcome, r.turns, r.costUsd, r.summary, r.error, r.servedModels])),
           () => {
             const runs = Object.values(S().runs).filter((r) => r.agentId === id).slice(-8).reverse();
             if (!runs.length) return empty('No run.started event for this agent yet.');
@@ -1568,13 +1762,14 @@ export function createUI(root, client, world) {
                   'tr',
                   {},
                   h('td', { class: 'mono', text: r.runId }),
-                  h('td', {}, h('span', { class: `pill out-${r.outcome || 'running'}`, text: (r.outcome || 'running').toUpperCase() })),
+                  h('td', {}, h('span', { class: `pill out-${r.outcome || 'running'}`, text: (r.outcome || 'running').toUpperCase() }), r.provider === 'scripted' ? [' ', scriptedMark(true)] : null),
                   h('td', { class: 'num', text: String(r.turns) }),
                   h('td', { class: 'num', text: usd(r.costUsd) }),
                 ),
               );
               const note = r.error || r.summary || r.lastText;
-              if (note) rows.push(h('tr', { class: 'entry-sub' }, h('td', { colspan: '4', text: `${r.model}${r.provider ? ` [${r.provider}]` : ''} · ${clip(note, 220)}` })));
+              const served = r.servedModels?.length ? ` · served by ${r.servedModels.join(', ')} (fallback)` : '';
+              if (note || served) rows.push(h('tr', { class: 'entry-sub' }, h('td', { colspan: '4', text: `${r.model}${r.provider ? ` [${r.provider}]` : ''}${served}${note ? ` · ${clip(note, 220)}` : ''}` })));
             }
             return h('table', { class: 'tbl' }, h('thead', {}, h('tr', {}, ['RUN', 'OUTCOME', 'TURNS', 'COST'].map((c, i) => h('th', { scope: 'col', class: i >= 2 ? 'num' : '', text: c })))), h('tbody', {}, rows));
           },
@@ -1591,7 +1786,7 @@ export function createUI(root, client, world) {
           () => {
             const p = pendingApprovals(S()).filter((ap) => ap.agentId === id);
             if (!p.length) return empty('None.');
-            return [h('ul', { class: 'list' }, p.map((ap) => h('li', { class: 'appr-line' }, h('span', { class: 'pill st-awaiting_approval', text: ap.tool }), ` ${ap.summary}`))), h('button', { type: 'button', class: 'btn small', on: { click: () => open({ type: 'approvals' }) } }, 'OPEN APPROVALS')];
+            return [h('ul', { class: 'list' }, p.map((ap) => h('li', { class: 'appr-line' }, h('span', { class: 'pill st-awaiting_approval', text: ap.tool }), ' ', taintMark(ap, 'WEB-DERIVED'), ap.summary))), h('button', { type: 'button', class: 'btn small', on: { click: () => open({ type: 'approvals' }) } }, 'OPEN APPROVALS')];
           },
         ),
       ),
@@ -1644,7 +1839,7 @@ export function createUI(root, client, world) {
 
   function viewApprovals() {
     const v = makeView('APPROVALS', { kind: 'approvals' });
-    v.add(h('div', { class: 'view-head' }, h('div', { class: 'kicker', text: 'APPROVALS DRAWER' }), h('p', { class: 'purpose', text: 'Sensitive tools (publish, deliver) pause their run until you decide. Nothing leaves the machine until you grant it.' })));
+    v.add(h('div', { class: 'view-head' }, h('div', { class: 'kicker', text: 'APPROVALS DRAWER' }), h('p', { class: 'purpose', text: 'Sensitive tools (publish, deliver) pause their run until you decide. A grant lets the tool run; what it sends, if anything, is stated on each card.' })));
 
     // Keyed so a note being typed survives unrelated events.
     const list = h('div', { class: 'approvals' });
@@ -1661,6 +1856,8 @@ export function createUI(root, client, world) {
           }
         }
         for (const ap of pend) if (!cards.has(ap.approvalId)) cards.set(ap.approvalId, approvalCard(ap));
+        // Deciding needs a live event stream: a stale card may already be resolved or expired.
+        for (const card of cards.values()) card.syncLink?.();
         const order = pend.map((p) => cards.get(p.approvalId));
         if (!order.length) {
           if (list.firstChild !== emptyEl || list.childNodes.length !== 1) list.replaceChildren(emptyEl);
@@ -1691,7 +1888,9 @@ export function createUI(root, client, world) {
               'li',
               { class: 'appr-line' },
               h('span', { class: `pill ap-${ap.status}`, text: ap.status.toUpperCase() }),
-              ` ${agentName(S(), ap.agentId)} · ${ap.tool} · ${ap.summary}`,
+              ' ',
+              taintMark(ap, 'WEB-DERIVED'),
+              `${agentName(S(), ap.agentId)} · ${ap.tool} · ${ap.summary}`,
               h('span', { class: 'dim block', text: `requested ${stamp(ap.requestedTs)} · resolved ${stamp(ap.resolvedTs)}${ap.note ? ` · note: ${ap.note}` : ''}` }),
             ),
           ),
@@ -1710,25 +1909,45 @@ export function createUI(root, client, world) {
     const out = h('div', { class: 'result', role: 'status', 'aria-live': 'polite' });
     const grant = h('button', { type: 'button', class: 'btn grant' }, 'GRANT');
     const deny = h('button', { type: 'button', class: 'btn deny' }, 'DENY');
+    let busy = false;
+    let sent = false;
+    const syncLink = () => {
+      const down = client.link !== 'live';
+      grant.disabled = deny.disabled = busy || sent || down;
+      const title = down ? 'Event stream down: reconnect before deciding (this request may already be resolved or expired).' : '';
+      grant.title = deny.title = title;
+    };
     const decide = async (decision) => {
-      grant.disabled = true;
-      deny.disabled = true;
+      busy = true;
+      syncLink();
       setResult(out, 'busy', 'TRANSMITTING…');
       try {
         await client.post(`/api/approvals/${encodeURIComponent(ap.approvalId)}`, { decision, note: note.value.trim() || undefined });
+        sent = true;
         setResult(out, 'ok', `${decision.toUpperCase()} sent. Waiting for the approval.resolved event.`);
       } catch (err) {
         setResult(out, 'error', `ERROR: ${err.message}`);
-        grant.disabled = false;
-        deny.disabled = false;
+      } finally {
+        busy = false;
+        syncLink();
       }
     };
+    syncLink();
     grant.addEventListener('click', () => decide('granted'));
     deny.addEventListener('click', () => decide('denied'));
-    return h(
+    const tainted = isWebTainted(ap);
+    const card = h(
       'article',
-      { class: 'approval', 'aria-label': `Approval ${ap.approvalId}` },
+      { class: `approval${tainted ? ' tainted' : ''}`, 'aria-label': `Approval ${ap.approvalId}${tainted ? ', derived from web content' : ''}` },
       h('div', { class: 'row' }, agentLink(ap.agentId, `ap-${ap.approvalId}`), h('code', { class: 'tool', text: ap.tool }), h('span', { class: 'dim', text: `requested ${hms(ap.requestedTs)}` })),
+      tainted
+        ? h(
+          'div',
+          { class: 'taint-banner', role: 'note', title: TAINT_TITLE },
+          h('strong', { text: 'DERIVED FROM WEB CONTENT — review for injected instructions' }),
+          h('span', { class: 'taint-why' }, 'The requesting run used web content or a web-derived input (', taintSources(ap.taintSources, openArtifact), '). Check that the request matches what you asked for.'),
+        )
+        : null,
       h('p', { class: 'appr-summary', text: ap.summary }),
       h('pre', { class: 'appr-input', text: prettyMaybeJson(ap.input) }),
       h('div', { class: 'sub mono dim', text: `${ap.approvalId} · run ${ap.runId} · task ${ap.taskId}${st.tasks[ap.taskId] ? ` (${st.tasks[ap.taskId].title})` : ''}` }),
@@ -1737,6 +1956,8 @@ export function createUI(root, client, world) {
       h('div', { class: 'actions' }, grant, deny),
       out,
     );
+    card.syncLink = syncLink;
+    return card;
   }
 
   const VIEWS = { station: viewStation, room: viewRoom, agent: viewAgent, object: viewObject, approvals: viewApprovals };
@@ -1926,6 +2147,20 @@ export function createUI(root, client, world) {
   function schedule() {
     if (!frame) frame = requestAnimationFrame(flush);
   }
+
+  // "Today" is the UTC day: re-render once when it rolls over, so an idle station does not keep
+  // showing yesterday's spend (or yesterday's cap warning). A date boundary, not a ticking counter.
+  let midnightTimer = 0;
+  function armMidnight() {
+    clearTimeout(midnightTimer);
+    const d = new Date();
+    const next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1) + 50;
+    midnightTimer = setTimeout(() => {
+      schedule();
+      armMidnight();
+    }, Math.max(1000, next - d.getTime()));
+  }
+  armMidnight();
 
   client.subscribe((e) => {
     if (e === null) resnap = true;

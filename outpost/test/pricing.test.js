@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PRICES, WEB_SEARCH_USD_PER_1K, costOf, priceFor } from '../sidecar/pricing.js';
+import { PRICES, WEB_SEARCH_USD_PER_1K, costByModel, costOf, priceFor, servedModel, unpricedModels } from '../sidecar/pricing.js';
 
 const close = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} != ${expected}`);
 
@@ -56,8 +56,35 @@ test('a server-side fallback is priced per iteration at each model\'s rate', () 
   };
   // declined attempt at opus-5-5 input rate (4) + fallback at opus-5 rates (5 + 0.1*25)
   close(costOf('claude-opus-5-5', usage), 4 + 5 + 2.5);
-  assert.throws(
-    () => costOf('claude-opus-5-5', { iterations: [{ type: 'fallback_message', model: 'claude-unknown', input_tokens: 1, output_tokens: 1 }] }),
-    /no price for model claude-unknown/,
-  );
+});
+
+test('an unlisted fallback model is billed at the highest known rate, never skipped (RT-5)', () => {
+  const usage = {
+    iterations: [
+      { type: 'message', model: 'claude-opus-5-5', input_tokens: 1000, output_tokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-5-6', input_tokens: 100_000, output_tokens: 19_900 },
+    ],
+  };
+  // highest known rates: input 5, output 25 (opus-5 / opus-4-8)
+  close(costOf('claude-opus-5-5', usage), 1000 * 4e-6 + 100_000 * 5e-6 + 19_900 * 25e-6);
+  assert.deepEqual(unpricedModels(usage), ['claude-opus-5-6']);
+  assert.deepEqual(unpricedModels({ input_tokens: 1 }), []);
+  assert.throws(() => costOf('claude-unknown', { input_tokens: 1 }), /no price for model claude-unknown/, 'the requested model must still be priced');
+});
+
+test('costByModel splits a fallback response per model that ran it (TL-9)', () => {
+  const usage = {
+    iterations: [
+      { type: 'message', model: 'claude-opus-5-5', input_tokens: 1000, output_tokens: 0 },
+      { type: 'fallback_message', model: 'claude-opus-4-8', input_tokens: 1000, output_tokens: 1000 },
+    ],
+    server_tool_use: { web_search_requests: 1 },
+  };
+  const split = costByModel('claude-opus-5-5', usage);
+  close(split['claude-opus-5-5'], 0.004 + 0.01); // declined attempt + the web search, billed to the requested model
+  close(split['claude-opus-4-8'], 0.005 + 0.025);
+  close(Object.values(split).reduce((a, b) => a + b, 0), costOf('claude-opus-5-5', usage));
+  assert.equal(servedModel('claude-opus-5-5', usage), 'claude-opus-4-8');
+  assert.equal(servedModel('claude-opus-5-5', { input_tokens: 1 }, 'claude-opus-5-5'), null, 'no fallback, no served model');
+  assert.deepEqual(costByModel('claude-haiku-4-5', { input_tokens: 1_000_000 }), { 'claude-haiku-4-5': 1 });
 });

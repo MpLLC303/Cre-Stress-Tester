@@ -3,7 +3,9 @@
 //
 // Specs: `every <n>m` / `every <n>h`, or 5-field cron (minute hour day-of-month month
 // day-of-week, UTC) with `*`, `*/n`, `a`, `a-b` and comma lists. Cron schedules miss runs that
-// fall while the sidecar is down; they do not catch up.
+// fall while the sidecar is down; they do not catch up. A firing is skipped (logged once per
+// reason) while E-STOP is engaged, while the schedule's previous firing still has unfinished tasks,
+// or while the station daily budget holds queued work, so no backlog piles up behind a stall.
 
 import { newId } from './ids.js';
 import { planRecipe } from './recipes.js';
@@ -16,6 +18,7 @@ const CRON_FIELDS = [
   { name: 'day-of-week', min: 0, max: 7 }, // 0 and 7 are both Sunday
 ];
 const MINUTE_MS = 60_000;
+const TERMINAL = new Set(['done', 'failed', 'cancelled']);
 
 function parseField(text, { name, min, max }) {
   const values = new Set();
@@ -90,6 +93,7 @@ export function createScheduler({ store, dispatcher, now = Date.now, intervalMs 
   const compiled = new Map(); // scheduleId -> parsed spec (null when the stored spec is invalid)
   const anchors = new Map(); // scheduleId -> ms an interval counts from
   const lastMinute = new Map(); // scheduleId -> UTC minute index of the last firing
+  const holding = new Map(); // scheduleId -> why its firings are being skipped (logged once per reason)
   let timer = null;
 
   function track(s, anchorMs) {
@@ -125,6 +129,20 @@ export function createScheduler({ store, dispatcher, now = Date.now, intervalMs 
     return t - anchors.get(id) >= parsed.ms;
   }
 
+  /** Why this schedule must not fire now (its last firing is unfinished, or the budget holds work), or null. */
+  function holdReason(s) {
+    const open = (s.lastTaskIds || []).filter((id) => {
+      const status = store.state.tasks[id]?.status;
+      return status && !TERMINAL.has(status);
+    });
+    if (open.length) return { kind: 'pending', text: `its previous firing still has ${open.length} unfinished task(s)` };
+    const daily = store.state.station?.budgets?.stationDailyUsd;
+    if (typeof daily === 'number' && typeof dispatcher.spendTodayUsd === 'function' && dispatcher.spendTodayUsd() >= daily) {
+      return { kind: 'budget', text: `the station daily budget is spent ($${daily}); queued work waits for the next UTC day` };
+    }
+    return null;
+  }
+
   function fire(s) {
     const { template } = s;
     if (typeof template.recipe === 'string') return dispatcher.startRecipe(template.recipe, template.params || {}, 'scheduler').taskIds;
@@ -145,6 +163,15 @@ export function createScheduler({ store, dispatcher, now = Date.now, intervalMs 
       // Mark first, so a failing template is retried at its next due time, not on every tick.
       lastMinute.set(s.scheduleId, minute);
       anchors.set(s.scheduleId, t);
+      const hold = holdReason(s);
+      if (hold) {
+        if (holding.get(s.scheduleId) !== hold.kind) {
+          holding.set(s.scheduleId, hold.kind);
+          store.append('log', { level: 'warn', message: `schedule ${s.scheduleId} (${s.spec}) skipped: ${hold.text}. It fires again at its next due time once that clears.` }, 'scheduler');
+        }
+        continue;
+      }
+      holding.delete(s.scheduleId);
       try {
         store.append('schedule.fired', { scheduleId: s.scheduleId, taskIds: fire(s) }, 'scheduler');
         fired.push(s.scheduleId);

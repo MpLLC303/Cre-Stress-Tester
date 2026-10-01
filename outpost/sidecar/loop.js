@@ -7,10 +7,12 @@
 
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { preview } from '../shared/events.js';
+import { WEB_TAINT, preview } from '../shared/events.js';
+import { isWebTainted } from '../shared/projector.js';
+import { createTaint } from './artifacts.js';
 import { checkCall, toolsForAgent } from './capability.js';
 import { newId } from './ids.js';
-import { costOf, priceFor } from './pricing.js';
+import { costByModel, costOf, priceFor, servedModel, unpricedModels } from './pricing.js';
 import { systemPrompt, taskMessage } from './prompts.js';
 
 const MAX_TOKENS = 16000;
@@ -54,8 +56,68 @@ function isAbort(err, signal) {
   return signal?.aborted || err?.name === 'AbortError';
 }
 
+/**
+ * Settle with `promise`, or reject as soon as `signal` aborts. A tool that ignores the signal (or a
+ * request that hangs) then cannot pin a halted run: the run ends at once and the tool, if it ever
+ * returns, finishes in the background.
+ */
+function untilAborted(promise, signal) {
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new Error('run aborted'));
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(err);
+      },
+    );
+  });
+}
+
 function defaultSpendToday(store) {
   return () => store.state.spend.byDay[new Date().toISOString().slice(0, 10)] || 0;
+}
+
+const WEB_TOOLS = new Set(['web_search', 'web_fetch']);
+const WEB_RESULTS = new Set(['web_search_tool_result', 'web_fetch_tool_result']);
+
+/** True when an assistant turn used the web: a web server-tool call or its result block. */
+export function usesWeb(content) {
+  return (content || []).some((b) => (b?.type === 'server_tool_use' && WEB_TOOLS.has(b.name)) || WEB_RESULTS.has(b?.type));
+}
+
+/**
+ * Why a run starts web-tainted: its tainted input artifacts and, for a review task, the tainted
+ * runs of the work it reviews (their summaries are in the prompt even when they left no artifact).
+ */
+export function initialTaintSources(state, task) {
+  const sources = (task.inputs || []).filter((id) => isWebTainted(state.artifacts[id]));
+  if (task.kind === 'review' && task.parentTaskId) {
+    for (const id of state.taskOrder) {
+      const t = state.tasks[id];
+      if (t.taskId === task.taskId || t.kind === 'review' || t.parentTaskId !== task.parentTaskId) continue;
+      for (const runId of t.runIds) if (isWebTainted(state.runs[runId])) sources.push(runId);
+    }
+  }
+  return sources;
+}
+
+/** Existing artifacts a tool input names directly (top-level strings and string arrays). */
+function referencedArtifacts(state, input) {
+  const ids = [];
+  for (const value of Object.values(input && typeof input === 'object' ? input : {})) {
+    for (const v of [].concat(value)) if (typeof v === 'string' && Object.hasOwn(state.artifacts, v)) ids.push(v);
+  }
+  return ids;
 }
 
 /**
@@ -109,15 +171,31 @@ export async function runAgentLoop(opts) {
   };
 
   const outputs = new Set();
+  const servedModels = new Set();
   let turns = 0;
   let summary = '';
   let outcome;
   let error;
   const runCost = () => store.state.runs[runId]?.costUsd ?? 0;
 
+  /**
+   * Why no more money may be spent in this run (the station daily budget, then the run budget), or
+   * null. Checked before every provider call AND before every tool call, so one turn of parallel
+   * paid tool calls (e.g. generate_image) overshoots by at most one call.
+   */
+  function budgetBlock() {
+    const spentToday = stationSpendTodayUsd();
+    if (spentToday >= dailyBudget) return `station daily budget reached ($${spentToday.toFixed(2)} of $${dailyBudget})`;
+    const spent = runCost();
+    if (spent > runBudget) return `run cost $${spent.toFixed(4)} exceeded the $${runBudget} run budget`;
+    return null;
+  }
+
   store.append('run.started', { runId, taskId, agentId: agent.id, provider: provider.name, model, effort: agent.effort, tools: [...offered] }, actor);
   setStatus('thinking');
 
+  // Web taint (see createTaint): tools consult it when they write, and mark it when they read.
+  const taint = createTaint(initialTaintSources(store.state, task));
   const ctx = {
     ...opts.ctxBase,
     store,
@@ -127,6 +205,9 @@ export async function runAgentLoop(opts) {
     task,
     runId,
     signal,
+    taint,
+    budgetBlock, // tools that spend (generate_image) refuse up front when it returns a reason
+    budgetRemainingUsd: () => Math.min(runBudget - runCost(), dailyBudget - stationSpendTodayUsd()),
     workspaceDir: join(dataDir, 'workspaces', agent.id),
   };
 
@@ -134,12 +215,16 @@ export async function runAgentLoop(opts) {
     const approvalId = newId('apr');
     let summaryLine;
     try {
-      summaryLine = tool.summarize ? String(tool.summarize(input)) : '';
+      // ctx lets the summary say what granting will really do (e.g. Etsy draft vs dry run).
+      summaryLine = tool.summarize ? String(tool.summarize(input, ctx)) : '';
     } catch {
       summaryLine = '';
     }
     summaryLine = preview(summaryLine || `${name} ${preview(input, 160)}`, 300);
-    store.append('approval.requested', { approvalId, runId, agentId: agent.id, taskId, tool: name, summary: summaryLine, input: preview(input, 2000) }, actor);
+    // Acting on a tainted artifact counts as reading it, so the operator sees the taint even if
+    // the model only learned the id.
+    for (const id of referencedArtifacts(store.state, input)) if (isWebTainted(store.state.artifacts[id])) taint.add(id);
+    store.append('approval.requested', { approvalId, runId, agentId: agent.id, taskId, tool: name, summary: summaryLine, input: preview(input, 2000), ...taint.fields() }, actor);
     setStatus('awaiting_approval', { tool: name, objectId, detail: summaryLine });
     store.append('task.status', { taskId, status: 'awaiting_approval', reason: summaryLine }, actor);
     let resolution;
@@ -182,13 +267,28 @@ export async function runAgentLoop(opts) {
       if (decision !== 'granted') return deny(`operator denied: ${note || decision}`);
     }
 
+    signal?.throwIfAborted(); // never start a tool for a halted run
     setStatus('tool', { tool: name, objectId: check.objectId });
     store.append('tool.called', { runId, callId, agentId: agent.id, tool: name, objectId: check.objectId, input: inputPreview }, actor);
     const started = Date.now();
+    const running = Promise.resolve().then(() => tool.run(input, ctx));
+    running.catch(() => {}); // a late failure after a halt is not an unhandled rejection
     let res;
     try {
-      res = await tool.run(input, ctx);
+      res = await untilAborted(running, signal);
     } catch (err) {
+      if (signal?.aborted) {
+        store.append('tool.result', {
+          runId,
+          callId,
+          agentId: agent.id,
+          tool: name,
+          ok: false,
+          output: 'halted while running: the run stopped before this tool returned. A request already in flight may still complete; anything the tool records later carries this run id.',
+          durationMs: Date.now() - started,
+        }, actor);
+        throw err;
+      }
       res = { ok: false, output: `tool error: ${errorMessage(err)}` };
     }
     const ok = res?.ok === true;
@@ -200,9 +300,9 @@ export async function runAgentLoop(opts) {
     return result;
   }
 
-  function checkRunBudget() {
-    const spent = runCost();
-    if (spent > runBudget) throw new RunStop('budget_exceeded', `run cost $${spent.toFixed(4)} exceeded the $${runBudget} run budget`);
+  function checkBudgets() {
+    const blocked = budgetBlock();
+    if (blocked) throw new RunStop('budget_exceeded', blocked);
   }
 
   /** Drive provider turns until the run completes (resolves) or stops (throws). */
@@ -216,11 +316,7 @@ export async function runAgentLoop(opts) {
     for (;;) {
       signal?.throwIfAborted();
       if (turns >= maxTurns) throw new RunStop('max_turns', `reached the ${maxTurns}-turn limit`);
-      const spentToday = stationSpendTodayUsd();
-      if (spentToday >= dailyBudget) {
-        throw new RunStop('budget_exceeded', `station daily budget reached ($${spentToday.toFixed(2)} of $${dailyBudget})`);
-      }
-      checkRunBudget(); // tool spend (e.g. images) since the last step counts too
+      checkBudgets(); // tool spend (e.g. images) since the last step counts too
 
       setStatus('thinking');
       const msg = await provider.createMessage({
@@ -236,18 +332,32 @@ export async function runAgentLoop(opts) {
       });
       turns += 1;
       messages.push({ role: 'assistant', content: msg.content });
+      if (usesWeb(msg.content)) taint.add(WEB_TAINT);
       summary = textOf(msg.content);
+      // Priced before the event is built: the call is already paid for, so run.step is always
+      // recorded (an unlisted fallback model is billed at the highest known rate, never skipped).
+      const usage = msg.usage ?? {};
+      const costUsd = costOf(model, usage);
+      const fallback = Array.isArray(usage.iterations) && usage.iterations.some((it) => it?.type === 'fallback_message');
+      const served = servedModel(model, usage, msg.model);
+      if (served) servedModels.add(served);
       store.append('run.step', {
         runId,
         agentId: agent.id,
         turn: turns,
         stopReason: msg.stop_reason ?? 'unknown',
-        usage: msg.usage ?? {},
-        costUsd: costOf(model, msg.usage ?? {}),
+        usage,
+        costUsd,
         text: summary ? preview(summary, 600) : undefined,
+        ...(fallback ? { costByModel: costByModel(model, usage) } : {}),
+        ...(served ? { servedModel: served } : {}),
       }, actor);
+      const unpriced = unpricedModels(usage);
+      if (unpriced.length) {
+        store.append('log', { level: 'warn', message: `run ${runId}: fallback model(s) ${unpriced.join(', ')} have no price in sidecar/pricing.js; this step was billed at the highest known rate` }, actor);
+      }
 
-      checkRunBudget();
+      checkBudgets();
 
       switch (msg.stop_reason) {
         case 'end_turn':
@@ -265,11 +375,21 @@ export async function runAgentLoop(opts) {
           const calls = msg.content.filter((b) => b.type === 'tool_use');
           if (!calls.length) throw new RunStop('failed', 'stop_reason tool_use without a tool_use block');
           const results = [];
+          let stop = null;
           for (const call of calls) {
             signal?.throwIfAborted();
+            // Budgets are re-checked before every call: earlier calls this turn may have spent.
+            stop ??= budgetBlock();
+            if (stop) {
+              const reason = `budget exceeded, not run: ${stop}`;
+              store.append('tool.denied', { runId, callId: call.id, agentId: agent.id, tool: call.name, reason }, actor);
+              results.push({ type: 'tool_result', tool_use_id: call.id, content: reason, is_error: true });
+              continue;
+            }
             results.push(await executeCall(call));
           }
           messages.push({ role: 'user', content: results });
+          if (stop) throw new RunStop('budget_exceeded', stop);
           continue;
         }
         default:
@@ -302,6 +422,8 @@ export async function runAgentLoop(opts) {
       costUsd: runCost(),
       summary: summary || undefined,
       error,
+      servedModels: servedModels.size ? [...servedModels] : undefined,
+      ...taint.fields(),
     }, actor);
     store.append('agent.status', { agentId: agent.id, status: 'idle' }, actor);
   }

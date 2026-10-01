@@ -12,6 +12,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkCall } from './capability.js';
 import { readArtifact } from './artifacts.js';
+import { ETSY_SETUP_HINT } from './connectors/etsy.js';
 import { newId } from './ids.js';
 import { RECIPES } from './recipes.js';
 
@@ -24,6 +25,10 @@ const PING_MS = 15_000;
 // A client that stops reading is dropped once this much is queued for it; its EventSource
 // reconnects with ?since=<last seq> and replays from the log, so nothing is lost.
 const MAX_SSE_QUEUE_BYTES = 8 * 1024 * 1024;
+// Replay is sent in bounded batches between turns of the event loop, so a long log neither blocks
+// the server nor keeps being serialised for a client that already hung up.
+const SSE_REPLAY_BATCH = 500;
+const MAX_SSE_STREAMS = 32;
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 const CONTENT_TYPES = {
@@ -49,16 +54,23 @@ class HttpError extends Error {
 
 /**
  * The runtime facts the UI labels itself with. Never includes secrets.
+ *
+ * providerLabel only states configuration: a key being set proves nothing, so the UI derives
+ * LIVE / LAST CALL FAILED from the runs in the log (shared/projector.js anthropicStatus).
+ * modelOverride is OUTPOST_MODEL: when set, every agent runs on it whatever the layout says.
  * @param {{config:object, imageProvider:object|null, connectors:{etsy?:{configured:boolean}}}} opts
- * @returns {{provider:string, providerLabel:string, imageProvider:{name:string, model:string}|null,
- *   connectors:{etsy:{configured:boolean}}, version:string}}
+ * @returns {{provider:string, providerLabel:string, modelOverride:string|null,
+ *   imageProvider:{name:string, model:string}|null, connectors:{etsy:{configured:boolean, setup:string|null}},
+ *   version:string}}
  */
 export function runtimeMeta({ config, imageProvider, connectors }) {
+  const etsyConfigured = Boolean(connectors?.etsy?.configured);
   return {
     provider: config.provider,
-    providerLabel: config.provider === 'anthropic' ? 'LIVE · Anthropic API' : 'SCRIPTED DEMO · no model calls',
+    providerLabel: config.provider === 'anthropic' ? 'Anthropic API · key set' : 'SCRIPTED DEMO · no model calls',
+    modelOverride: config.provider === 'anthropic' ? config.modelOverride || null : null,
     imageProvider: imageProvider ? { name: imageProvider.name, model: imageProvider.model } : null,
-    connectors: { etsy: { configured: Boolean(connectors?.etsy?.configured) } },
+    connectors: { etsy: { configured: etsyConfigured, setup: etsyConfigured ? null : ETSY_SETUP_HINT } },
     version: VERSION,
   };
 }
@@ -73,10 +85,21 @@ function sendJson(res, status, body) {
   res.end(data);
 }
 
+/** Host header check (DNS-rebinding guard). The whole header must parse: name, then an optional port. */
 function hostAllowed(host, allowHosts) {
   if (!host) return false;
   const h = host.toLowerCase();
-  const name = h.startsWith('[') ? h.slice(0, h.indexOf(']') + 1) : h.replace(/:\d+$/, '');
+  let name;
+  if (h.startsWith('[')) {
+    const end = h.indexOf(']');
+    if (end < 0) return false;
+    const rest = h.slice(end + 1);
+    if (rest !== '' && !/^:\d{1,5}$/.test(rest)) return false; // "[::1]evil.com" is not [::1]
+    name = h.slice(0, end + 1);
+  } else {
+    if (!/^[a-z0-9.-]+(?::\d{1,5})?$/.test(h)) return false;
+    name = h.replace(/:\d+$/, '');
+  }
   return LOOPBACK_HOSTS.has(name) || allowHosts.includes(name) || allowHosts.includes(h);
 }
 
@@ -195,10 +218,12 @@ function sseWriter(res) {
   };
 }
 
-function streamEvents(req, res, store, url) {
+function streamEvents(req, res, store, url, streams) {
   const sinceParam = url.searchParams.get('since') ?? req.headers['last-event-id'] ?? '0';
   const since = Number(sinceParam);
   if (!Number.isInteger(since) || since < 0) throw new HttpError(400, 'since must be a non-negative integer');
+  if (streams.size >= MAX_SSE_STREAMS) throw new HttpError(503, `too many open event streams (max ${MAX_SSE_STREAMS})`);
+  streams.add(res);
   res.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
     'cache-control': 'no-store',
@@ -210,14 +235,36 @@ function streamEvents(req, res, store, url) {
   // Flush headers now: with nothing to replay, the browser would otherwise sit in
   // "connecting" until the first ping.
   write(': open\n\n');
-  // Replay and subscribe in the same synchronous step, so no event falls in between.
-  for (const e of store.events(since)) write(sseFrame(e));
-  const unsubscribe = store.subscribe((e) => write(sseFrame(e)));
+  let last = since;
+  let unsubscribe = null;
+  // Replay in batches; the final (short) batch and the subscription happen in the same
+  // synchronous step, so no event falls in between.
+  const pump = () => {
+    if (res.destroyed) return;
+    const batch = store.events(last, SSE_REPLAY_BATCH);
+    for (const e of batch) {
+      if (res.destroyed) return;
+      write(sseFrame(e));
+      last = e.seq;
+    }
+    if (batch.length === SSE_REPLAY_BATCH) {
+      if (res.writableNeedDrain) res.once('drain', pump);
+      else setImmediate(pump);
+      return;
+    }
+    unsubscribe = store.subscribe((e) => {
+      if (e.seq <= last) return;
+      write(sseFrame(e));
+      last = e.seq;
+    });
+  };
+  pump();
   const ping = setInterval(() => write(': ping\n\n'), PING_MS);
   ping.unref();
   res.on('close', () => {
+    streams.delete(res);
     clearInterval(ping);
-    unsubscribe();
+    unsubscribe?.();
   });
 }
 
@@ -260,6 +307,8 @@ function manualLedgerEntry(store, body) {
   if (amountCents < 1) throw new HttpError(400, 'amount_usd must be at least 0.01');
   const currency = body.currency === undefined ? 'USD' : body.currency;
   if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) throw new HttpError(400, 'currency must be a 3-letter ISO code like USD');
+  // Counted totals are USD and nothing converts currencies: a EUR amount would be shown as dollars.
+  if (currency !== 'USD') throw new HttpError(400, 'only USD is supported until per-currency totals exist');
   const stream = requireString(body, 'stream', 40);
   if (body.memo !== undefined && (typeof body.memo !== 'string' || body.memo.length > 500)) throw new HttpError(400, 'memo must be a string of at most 500 characters');
   let occurredAt = new Date().toISOString();
@@ -283,17 +332,26 @@ function manualLedgerEntry(store, body) {
   return { entryId, amountCents };
 }
 
+/**
+ * Full Etsy sync (receipts and payment-account fees). The response carries counts only: the
+ * detail (fee window, skipped ledger types) is in the connector.sync event, and no token, key or
+ * secret is ever in either.
+ */
 async function syncConnector(store, connectors, name) {
   if (name !== 'etsy') throw new HttpError(404, `unknown connector "${name}"`);
   const etsy = connectors?.etsy;
-  if (!etsy?.configured) {
-    throw new HttpError(501, 'etsy connector not configured: set ETSY_API_KEY, ETSY_SHARED_SECRET, ETSY_ACCESS_TOKEN and ETSY_SHOP_ID, then restart the sidecar');
-  }
+  if (!etsy?.configured) throw new HttpError(501, `etsy connector not configured: ${ETSY_SETUP_HINT}`);
+  let result;
   try {
-    return await etsy.syncRevenue(store);
+    result = await etsy.syncRevenue(store);
   } catch (err) {
-    throw new HttpError(502, err.message); // the connector redacts its secrets from errors
+    // The connector already redacts its secrets (including rotated tokens); redact again in case
+    // the error came from somewhere that did not.
+    throw new HttpError(502, typeof etsy.redact === 'function' ? etsy.redact(err.message) : err.message);
   }
+  const counts = (x) => (x ? { fetched: x.fetched, newEntries: x.newEntries } : undefined);
+  // fetched/newEntries mix receipts and fee lines; receipts and fees say which is which.
+  return { fetched: result.fetched, newEntries: result.newEntries, receipts: counts(result.receipts), fees: counts(result.fees) };
 }
 
 /**
@@ -308,6 +366,19 @@ async function syncConnector(store, connectors, name) {
  */
 export function createServer({ store, dispatcher, scheduler, config, meta, connectors = {} }) {
   const allowHosts = (config.allowHosts || []).map((h) => h.toLowerCase());
+  const streams = new Set(); // open SSE responses
+  // When the log stops accepting writes, drop every stream: clients reconnect, refetch the
+  // snapshot and see meta.storeFailed instead of a station that silently stopped changing.
+  store.onFailure?.(() => {
+    for (const res of streams) res.destroy();
+  });
+
+  /** meta plus what can change while the server runs: the log identity and the store's health. */
+  const snapshotMeta = () => ({
+    ...meta,
+    logId: store.logId?.() ?? null,
+    storeFailed: store.health?.().failed ?? null,
+  });
 
   const posts = [
     [/^\/api\/goals$/, async (body) => {
@@ -360,6 +431,8 @@ export function createServer({ store, dispatcher, scheduler, config, meta, conne
     if (req.headers['x-outpost-client'] !== '1') throw new HttpError(403, 'missing x-outpost-client header');
     const { origin } = req.headers;
     if (origin !== undefined && !originMatches(origin, req.headers.host)) throw new HttpError(403, 'cross-origin request refused');
+    const failed = store.health?.().failed;
+    if (failed) throw new HttpError(503, `the event log failed a write (${failed}) and is read-only: nothing can be recorded until the sidecar restarts`);
     for (const [pattern, handler] of posts) {
       const match = path.match(pattern);
       if (!match) continue;
@@ -375,10 +448,18 @@ export function createServer({ store, dispatcher, scheduler, config, meta, conne
     if (path === '/' || path === '/index.html') return serveStatic(res, 'frontend', 'index.html');
     const asset = path.match(/^\/(frontend|shared)\/(.+)$/);
     if (asset) return serveStatic(res, asset[1], asset[2]);
-    if (path === '/api/snapshot') return sendJson(res, 200, { seq: store.state.seq, state: store.state, meta });
+    if (path.startsWith('/api/')) {
+      // A foreign page cannot read these, but it could still make the server do the work (e.g. a
+      // full-log replay): refuse cross-site requests outright. Browsers mark every fetch.
+      const site = req.headers['sec-fetch-site'];
+      if (site !== undefined && site !== 'same-origin' && site !== 'none') throw new HttpError(403, 'cross-site request refused');
+      const { origin } = req.headers;
+      if (origin !== undefined && !originMatches(origin, req.headers.host)) throw new HttpError(403, 'cross-origin request refused');
+    }
+    if (path === '/api/snapshot') return sendJson(res, 200, { seq: store.state.seq, state: store.state, meta: snapshotMeta() });
     if (path === '/api/events') {
       if (req.method !== 'GET') throw new HttpError(405, 'the event stream is GET only');
-      return streamEvents(req, res, store, url);
+      return streamEvents(req, res, store, url, streams);
     }
     const art = path.match(/^\/api\/artifacts\/([^/]+)(\/content)?$/);
     if (art) return serveArtifact(res, store, config.dataDir, decodeSegment(art[1]), Boolean(art[2]));

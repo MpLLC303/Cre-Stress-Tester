@@ -133,26 +133,30 @@ export function createClient() {
     retryTimer = setTimeout(reconnect, RETRY_MS);
   }
 
-  // Is the server's log still the one we projected? Compare the newest feed entry we hold
-  // that the snapshot also retains. No overlap means we cannot tell; assume it is.
-  function sameLog(snapState) {
-    const theirs = new Map((snapState.feed || []).map((f) => [f.seq, f]));
+  // Is the server's log still the one we projected? Its identity (meta.logId, a hash of event #1)
+  // must match, and the newest feed entry we hold that the snapshot also retains must be the same
+  // event. No overlap means continuity cannot be proven: adopt the snapshot, which is always safe.
+  function sameLog(snap) {
+    const theirId = snap.meta?.logId;
+    const myId = client.meta?.logId;
+    if (theirId && myId && theirId !== myId) return false;
+    const theirs = new Map((snap.state.feed || []).map((f) => [f.seq, f]));
     const mine = client.state.feed || [];
     for (let i = mine.length - 1; i >= 0; i--) {
       const g = theirs.get(mine[i].seq);
       if (g) return g.ts === mine[i].ts && g.type === mine[i].type && g.text === mine[i].text;
     }
-    return true;
+    return false;
   }
 
-  // Reopen with since=state.seq. The snapshot fetch is only used to detect a reset log
-  // (seq went backwards, or the same seq now names a different event) and to pick up
+  // Reopen with since=state.seq. The snapshot fetch is used to detect another log (a different
+  // logId, seq went backwards, or the same seq now names a different event) and to pick up
   // changed meta (e.g. restarted with a provider key).
   async function reconnect() {
     if (closed) return;
     try {
       const snap = await fetchSnapshot();
-      if (snap.state.seq < client.state.seq || !sameLog(snap.state)) {
+      if (snap.state.seq < client.state.seq || !sameLog(snap)) {
         adopt(snap);
         notify(null);
       } else if (JSON.stringify(snap.meta || {}) !== JSON.stringify(client.meta)) {

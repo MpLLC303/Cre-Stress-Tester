@@ -14,7 +14,9 @@ the spine. Read them first.
    labeled IDLE.
 2. **Money has provenance.** `ledger.entry.provenance` is `connector` (fetched from a platform API,
    carries `source.externalId`), `manual` (typed by the operator), or `agent_claim` (an agent said
-   so). Agent claims are displayed but never summed into counted totals.
+   so). Agent claims are displayed but never summed into counted totals. Counted totals are USD;
+   nothing converts currencies, so entries in another currency are tallied apart
+   (`ledger.unconverted[currency]`) and shown in their own currency, never as dollars.
 3. **Capability law.** Room = capability-scoped team, object = tool grant, hallway = handoff lane
    (`sidecar/capability.js`). The tool list offered to the model is computed from the layout, and
    every call is re-checked before it runs.
@@ -88,11 +90,19 @@ Secrets never leave the sidecar: nothing in `config.etsy`/`config.image.apiKey` 
 {
   state,                                  // live projection (shared/projector.js), mutated in place
   append(type, payload, actor = 'system') // validates (throws on invalid), assigns seq/ts, persists, applies, notifies; returns the event
-  events(sinceSeq = 0)                    // array of events with seq > sinceSeq (from memory)
+  events(sinceSeq = 0, limit?)            // array of events with seq > sinceSeq (from memory), at most `limit`
   subscribe(fn)                           // fn(event) after apply; returns unsubscribe
+  onFailure(fn)                           // fn(message) when a write fails; returns unsubscribe
+  health()                                // { failed: string|null }
+  logId()                                 // hash of event #1 (identity of this log), null while empty
   close()
 }
 ```
+Fail-stop: a failed write (ENOSPC, EIO) is truncated back to the last whole event and every later
+append throws until restart, so a fragment never merges with a later event and live state never
+runs ahead of the disk. `sidecar/index.js` holds an exclusive data-dir lock (`outpost.lock`, the
+owner's pid; a dead owner's lock is taken over) for the life of the station, so a second sidecar on
+the same log is refused before it reads or writes it.
 Persistence: `${dataDir}/events.ndjson`, one JSON event per line, `appendFileSync` on an open fd,
 `fsyncSync` at most every 250ms and on close. On open, replay the file through the projector; a
 malformed final line (torn write) is skipped and logged to stderr; malformed middle lines throw.
@@ -105,7 +115,10 @@ claude-sonnet-5-5 (2 / 10 / 2.5 / 4 / 0.20), claude-haiku-4-5 (1 / 5 / 1.25 / 2 
 `cache_creation_input_tokens` (5m rate unless `usage.cache_creation.ephemeral_1h_input_tokens`
 is present), `cache_read_input_tokens`, `server_tool_use.web_search_requests`. Unknown model throws
 `Error('no price for model …')`; the loop checks this before the first call so a run never executes
-without cost accounting.
+without cost accounting. A server-side fallback's `usage.iterations` are priced per model that ran
+them; `costByModel(model, usage)` returns that split (the projector books spend per served model),
+and a fallback model missing from `PRICES` is billed at the highest known rate (never $0; the loop
+logs a warning) because the response is already paid for.
 
 ### prompts.js
 - `systemPrompt(station, agent, grants)` → string. Stable for a given agent + layout (no timestamps,
@@ -128,7 +141,7 @@ TOOLS[name] = {
   sensitivity: 'safe' | 'approval',
   kind: 'client' | 'server',
   definition,                   // server tools only: e.g. { type: 'web_search_20260209', name: 'web_search', max_uses: 5 }
-  summarize(input) -> string,   // one line for approval cards
+  summarize(input, ctx?) -> string, // one line for approval cards; ctx (the run's tool ctx) lets it state what granting really does
   run: async (input, ctx) => ({ ok: boolean, output: string | object, artifactIds?: string[] }),
 }
 toolDefinitions(grants)          // -> Anthropic `tools` array in deterministic order; client tools get `strict: true`
@@ -162,10 +175,13 @@ Tool catalog (names are fixed by `OBJECT_GRANTS`):
 | handoff | safe | `{agent_id, title, brief, artifact_ids}` → `dispatcher.handoff(...)`; checks `canHandoff` (same room or one hallway). |
 
 ### svg.js
-`sanitizeSvg(svg)` → `{ ok, svg, reason }`. Reject: > 512 KB, missing `<svg`, `<script`, `<foreignObject`,
-`<!ENTITY`/`<!DOCTYPE`, any `on*=` attribute, `javascript:`, any `href`/`xlink:href` not starting with `#`
-or `data:image/(png|jpeg|webp)`, `<image` with external href, `@import`, `url(` pointing anywhere but `#`.
-Ensure root has `xmlns="http://www.w3.org/2000/svg"`.
+`sanitizeSvg(svg)` → `{ ok, svg, reason }`. Reject: > 512 KB, missing `<svg`, any element outside an SVG
+allow-list (so `script`, `foreignObject` and every XHTML element), any namespace-prefixed element, any
+namespace declaration other than the SVG default and `xmlns:xlink`, `<!ENTITY`/`<!DOCTYPE`, any `on*=`
+attribute, `javascript:`, any `href`/`src` with any prefix not starting with `#` or
+`data:image/(png|jpeg|webp)`, `@import`, `url(` pointing anywhere but `#`, `image-set(`/`src(`, any
+backslash (CSS escapes), `xml:base`, and animating `href`/`src`/`on*`. Checks run on the raw text and on
+an entity-decoded copy. Ensure root has `xmlns="http://www.w3.org/2000/svg"`.
 
 ### images.js
 `createImageProvider(config.image)` → `null` when not configured, else
@@ -203,10 +219,15 @@ Messages are append-only: always push the assistant `content` back verbatim (it 
 thinking and server-tool blocks). Per turn: abort check → provider call → `run.step` → budget check →
 branch on `stop_reason`: `end_turn` → completed (summary = final text); `refusal` → refused;
 `pause_turn` → push and continue; `max_tokens` → failed (never run tools on a truncated turn);
-`tool_use` → execute every client `tool_use` block (capability check → input validation → approval
-gate if sensitive → run), emit `tool.called` / `tool.result` / `tool.denied`, set
+`tool_use` → execute every client `tool_use` block (budget check → capability check → input
+validation → approval gate if sensitive → run), emit `tool.called` / `tool.result` / `tool.denied`, set
 `agent.status tool` with `objectId` while running, and return all `tool_result` blocks in ONE user
-message (`is_error: true` for failures). Turn cap → `max_turns`. Exceptions → failed with message.
+message (`is_error: true` for failures). The run and daily budgets are checked before EVERY tool call:
+once spent, the remaining calls of the turn are denied (`budget exceeded, not run: …`) and the run
+ends `budget_exceeded`; `ctx.budgetBlock()` / `ctx.budgetRemainingUsd()` let paid tools refuse first.
+A tool still running when the run is aborted (E-STOP / cancel) no longer holds the run: it ends at
+once (`tool.result` ok:false "halted while running"); tools pass `ctx.signal` to their requests.
+Turn cap → `max_turns`. Exceptions → failed with message.
 Always emit `run.finished` and return the agent to `idle` (the dispatcher handles task status).
 
 ### providers/anthropic.js
@@ -246,7 +267,10 @@ packet. When every work task sharing a `parentTaskId` is terminal, create one `k
 task for the parent's assignee with all child outputs as inputs. `recover()` on boot: pending
 approvals → `expired`; runs without outcome → `run.finished interrupted`; running /
 awaiting_approval tasks → `queued` (attempt < 2) or `failed`; agents → `idle`. E-STOP aborts every
-run's AbortController and blocks starts until released.
+run's AbortController and blocks starts until released. Operator halts never count as attempts: a
+halted task is re-queued, unless its run had a granted approval (an external action may have
+happened), in which case it fails with a reason pointing at the receipt and is never re-run
+automatically.
 
 ### server.js
 `createServer({ store, dispatcher, scheduler, config, meta })` → `http.Server` (not listening).
@@ -254,8 +278,8 @@ run's AbortController and blocks starts until released.
 | route | |
 | --- | --- |
 | `GET /` , `/frontend/*`, `/shared/*` | static files (ESM `text/javascript`), no directory traversal |
-| `GET /api/snapshot` | `{ seq, state, meta }` — meta = `{ provider, providerLabel, imageProvider, connectors: {etsy:{configured}}, version }` |
-| `GET /api/events?since=N` | SSE: replay `seq > N`, then live. Frame: `id: <seq>\nevent: outpost\ndata: <json>\n\n`; `: ping` every 15 s |
+| `GET /api/snapshot` | `{ seq, state, meta }` — meta = `{ provider, providerLabel, modelOverride, imageProvider, connectors: {etsy:{configured, setup}}, version, logId, storeFailed }`. `providerLabel` states configuration only ("Anthropic API · key set"); the UI shows LIVE only once an anthropic run recorded a `run.step` |
+| `GET /api/events?since=N` | SSE: replay `seq > N` (in batches of 500), then live. Frame: `id: <seq>\nevent: outpost\ndata: <json>\n\n`; `: ping` every 15 s; at most 32 open streams (503) |
 | `GET /api/artifacts/:id` / `:id/content` | meta / raw bytes with `Content-Type` from meta, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox` |
 | `POST /api/goals` `{goal}` | task for the commander |
 | `POST /api/tasks` `{assignee,title,brief,inputs?}` | operator task |
@@ -263,13 +287,16 @@ run's AbortController and blocks starts until released.
 | `POST /api/recipes/:name` `{params}` | `{recipeRunId, taskIds}` |
 | `POST /api/approvals/:id` `{decision:'granted'|'denied', note?}` | |
 | `POST /api/estop` `{engaged}` | |
-| `POST /api/ledger/manual` `{kind, amount_usd, currency?, stream, memo, occurred_at?}` | provenance `manual` |
-| `POST /api/connectors/:name/sync` | 501 with a clear message when not configured |
+| `POST /api/ledger/manual` `{kind, amount_usd, currency?, stream, memo, occurred_at?}` | provenance `manual`; currency must be USD (400 otherwise) |
+| `POST /api/connectors/:name/sync` | `{fetched, newEntries, receipts, fees}`; 501 with the setup hint when not configured |
 | `POST /api/schedules` `{spec, template}` | |
 
 Security: reject requests whose `Host` is not `localhost|127.0.0.1|[::1]` (+ `allowHosts`) with 421
 (DNS-rebinding guard). POSTs require header `x-outpost-client: 1` (forces CORS preflight from foreign
 origins, which is never answered) and, if `Origin` is present, it must match the Host. JSON bodies ≤ 1 MB.
+`GET /api/*` refuses cross-site requests (`Sec-Fetch-Site` other than same-origin/none, or a foreign
+`Origin`). The Host header must parse completely (`[::1]evil.com` is refused). When the store has
+failed a write, every POST answers 503 and open streams are dropped so clients refetch the snapshot.
 Errors are JSON `{error}`.
 
 ### frontend
@@ -280,7 +307,8 @@ Vanilla ES modules, no build step, served by the sidecar. `main.js` wires
 `content-type: application/json` + `x-outpost-client: 1` and throws `Error(json.error)` on !ok). It
 fetches `/api/snapshot`, then opens `EventSource('/api/events?since=<seq>')` and applies each event
 with `apply` from `/shared/projector.js`; on error it closes, waits 1 s and reopens with
-`since=state.seq`, refetching the snapshot if the server's log went backwards. `world.js` exports
+`since=state.seq`, adopting the fresh snapshot whenever continuity with the projected log cannot be
+proven (seq went backwards, `meta.logId` changed, or no retained feed entry overlaps). `world.js` exports
 `createWorld(canvas, client)` → `{ onSelect(fn), focus(id), destroy() }` (procedural pixel art on a
 56×33 grid of 16 px tiles: crisp scale when the box allows it, a draggable view + overview on small
 screens; rooms, walls, doors, hallways, objects, agents with name tags and status bubbles, packets

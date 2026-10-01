@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { join, basename, dirname } from 'node:path';
+import { WEB_TAINT } from '../shared/events.js';
 import { newId } from './ids.js';
 
 const MIME_BY_KIND = {
@@ -32,11 +33,42 @@ export function atomicWrite(path, data) {
   renameSync(tmp, path);
 }
 
+// ---- web taint ---------------------------------------------------------------------------
+// Injection containment is structural, not a matter of the model's judgement: a run that saw web
+// content (web_search / web_fetch blocks), was handed a tainted input, or read a tainted artifact
+// or memory note is tainted for the rest of its life, and everything it writes or asks the
+// operator to approve says so. The record lives on the tool ctx as `ctx.taint`.
+
+/**
+ * Mutable taint record of one run. Sources only accumulate: a run never becomes clean again.
+ * @param {Iterable<string>} [initial] sources known when the run starts (tainted input ids)
+ */
+export function createTaint(initial = []) {
+  const sources = new Set();
+  const taint = {
+    get tainted() {
+      return sources.size > 0;
+    },
+    /** Mark the run tainted because of `source` ('web', an artifact id, a run id or 'memory:<ns>/<key>'). */
+    add(source) {
+      if (typeof source === 'string' && source) sources.add(source);
+    },
+    /** Optional event fields for anything this run produces: {} while it is clean. */
+    fields() {
+      return sources.size ? { taint: WEB_TAINT, taintSources: [...sources] } : {};
+    },
+  };
+  for (const s of initial) taint.add(s);
+  return taint;
+}
+
 /**
  * Persist an artifact and emit artifact.created.
  * @param {{store:any, dataDir:string}} env
  * @param {{agentId:string, taskId?:string, runId?:string, kind:string, title:string,
- *          filename?:string, content:string|Buffer, mime?:string}} spec
+ *          filename?:string, content:string|Buffer, mime?:string,
+ *          taint?:'web', taintSources?:string[]}} spec
+ *   taint marks content derived from web pages (see createTaint); the fields are omitted when clean
  * @returns {object} the artifact.created payload
  */
 export function writeArtifact(env, spec) {
@@ -59,6 +91,11 @@ export function writeArtifact(env, spec) {
     bytes: buf.length,
     sha256: createHash('sha256').update(buf).digest('hex'),
   };
+  if (spec.taint) {
+    if (spec.taint !== WEB_TAINT) throw new Error(`unknown taint ${JSON.stringify(spec.taint)}`);
+    payload.taint = WEB_TAINT;
+    payload.taintSources = [...new Set(spec.taintSources?.length ? spec.taintSources : [WEB_TAINT])];
+  }
   env.store.append('artifact.created', payload, spec.agentId);
   return payload;
 }

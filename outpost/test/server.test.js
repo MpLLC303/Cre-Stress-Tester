@@ -5,7 +5,7 @@ import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { writeArtifact } from '../sidecar/artifacts.js';
-import { createEtsyConnector } from '../sidecar/connectors/etsy.js';
+import { ETSY_SETUP_HINT, createEtsyConnector } from '../sidecar/connectors/etsy.js';
 import { createDispatcher, createProviderFor } from '../sidecar/dispatcher.js';
 import { createScheduler } from '../sidecar/scheduler.js';
 import { createServer, runtimeMeta } from '../sidecar/server.js';
@@ -19,9 +19,9 @@ const ARTIFACT_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src dat
 // ---- fixtures ---------------------------------------------------------------------------
 
 /** A real store, dispatcher (never started, so tasks stay queued) and scheduler behind the server. */
-async function start(t, { connectors = { etsy: { configured: false } } } = {}) {
+async function start(t, { connectors = { etsy: { configured: false } }, writeImpl } = {}) {
   const dataDir = tmp();
-  const store = createStore({ dataDir });
+  const store = createStore({ dataDir, ...(writeImpl ? { writeImpl } : {}) });
   store.append('station.loaded', { station: STATION });
   const config = {
     dataDir,
@@ -106,9 +106,24 @@ test('Host guard: unknown Host -> 421 (DNS rebinding); loopback names and allowH
   assert.equal(evil.status, 421);
   assert.match(evil.json().error, /DNS-rebinding/);
   assert.equal((await get(port, '/', { host: 'rebind.attacker.test' })).status, 421, 'static files are guarded too');
-  for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`, 'outpost.test', `OUTPOST.TEST:${port}`]) {
+  for (const host of [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`, '[::1]', 'outpost.test', `OUTPOST.TEST:${port}`]) {
     assert.equal((await get(port, '/api/snapshot', { host })).status, 200, host);
   }
+  // The whole header must parse: nothing may trail a bracketed IPv6 literal but a port.
+  for (const host of ['[::1]evil.com', '[::1]anything', '[::1]:abc', '[::1', 'localhost:80:80', 'localhost evil', '127.0.0.1:99999999']) {
+    assert.equal((await get(port, '/api/snapshot', { host })).status, 421, host);
+  }
+});
+
+test('GET /api/* refuses cross-site requests (the work would be done even though the page cannot read it)', async (t) => {
+  const { port } = await start(t);
+  assert.equal((await get(port, '/api/snapshot', { 'sec-fetch-site': 'cross-site' })).status, 403);
+  assert.equal((await get(port, '/api/events?since=0', { 'sec-fetch-site': 'same-site' })).status, 403);
+  assert.equal((await get(port, '/api/snapshot', { origin: 'http://evil.example' })).status, 403);
+  assert.equal((await get(port, '/api/snapshot', { 'sec-fetch-site': 'same-origin' })).status, 200);
+  assert.equal((await get(port, '/api/snapshot', { 'sec-fetch-site': 'none' })).status, 200, 'typed into the address bar');
+  assert.equal((await get(port, '/api/snapshot', { origin: `http://127.0.0.1:${port}` })).status, 200);
+  assert.equal((await get(port, '/', { 'sec-fetch-site': 'cross-site' })).status, 200, 'the app itself is not an API');
 });
 
 test('POST guards: x-outpost-client required, foreign Origin refused, preflights never approved', async (t) => {
@@ -191,16 +206,22 @@ test('snapshot: the projection plus runtime meta, uncached, with no secrets', as
   assert.deepEqual(snap.meta, {
     provider: 'scripted',
     providerLabel: 'SCRIPTED DEMO · no model calls',
+    modelOverride: null,
     imageProvider: null,
-    connectors: { etsy: { configured: false } },
+    connectors: { etsy: { configured: false, setup: ETSY_SETUP_HINT } },
     version: JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version,
+    logId: store.logId(),
+    storeFailed: null,
   });
+  assert.match(snap.meta.logId, /^[0-9a-f]{16}$/);
   for (const secret of Object.values(SECRETS)) assert.ok(!res.text.includes(secret), 'secrets never leave the sidecar');
 
-  const live = runtimeMeta({ config: { provider: 'anthropic' }, imageProvider: { name: 'openai', model: 'gpt-image-2', generate() {} }, connectors: { etsy: { configured: true } } });
-  assert.equal(live.providerLabel, 'LIVE · Anthropic API');
+  // A key being set proves nothing: the label says so, and the UI derives LIVE from run.step events.
+  const live = runtimeMeta({ config: { provider: 'anthropic', modelOverride: 'claude-haiku-4-5' }, imageProvider: { name: 'openai', model: 'gpt-image-2', generate() {} }, connectors: { etsy: { configured: true } } });
+  assert.equal(live.providerLabel, 'Anthropic API · key set');
+  assert.equal(live.modelOverride, 'claude-haiku-4-5', 'OUTPOST_MODEL is surfaced: every agent runs on it');
   assert.deepEqual(live.imageProvider, { name: 'openai', model: 'gpt-image-2' });
-  assert.deepEqual(live.connectors, { etsy: { configured: true } });
+  assert.deepEqual(live.connectors, { etsy: { configured: true, setup: null } });
 });
 
 test('SSE: replays seq > since, then streams live frames; the subscription ends with the connection', async (t) => {
@@ -242,6 +263,58 @@ test('SSE: replays seq > since, then streams live frames; the subscription ends 
   resumed.close();
   assert.equal((await get(port, '/api/events?since=-1')).status, 400);
   assert.equal((await get(port, '/api/events?since=abc')).status, 400);
+});
+
+test('SSE: a long log is replayed in batches, completely and in order, with live events after it', async (t) => {
+  const { port, store } = await start(t);
+  for (let i = 0; i < 1234; i += 1) store.append('log', { level: 'info', message: `m${i}` });
+  const stream = openStream(port, '?since=0');
+  await stream.ready;
+  await new Promise((r) => setImmediate(r));
+  const live = store.append('log', { level: 'info', message: 'live' }); // may land between batches
+  await waitFor(() => stream.frames.length === live.seq, 'every event once');
+  const seqs = stream.frames.map((f) => Number(f.match(/^id: (\d+)/)[1]));
+  assert.deepEqual(seqs, Array.from({ length: live.seq }, (_, i) => i + 1), 'no gap, no duplicate');
+  stream.close();
+});
+
+test('SSE: concurrent streams are capped', async (t) => {
+  const { port } = await start(t);
+  const streams = [];
+  for (let i = 0; i < 32; i += 1) {
+    const s = openStream(port, '?since=0');
+    await s.ready;
+    streams.push(s);
+  }
+  const over = await get(port, '/api/events?since=0');
+  assert.equal(over.status, 503);
+  assert.match(over.json().error, /too many open event streams/);
+  streams.pop().close();
+  await new Promise((r) => setTimeout(r, 50));
+  const again = openStream(port, '?since=0');
+  assert.equal((await again.ready).statusCode, 200, 'a closed stream frees its slot');
+  again.close();
+  for (const s of streams) s.close();
+});
+
+test('a failed log write drops every stream, the snapshot reports it, and commands get 503 (RT-2)', async (t) => {
+  const io = { fail: false };
+  const writeImpl = (fd, data) => {
+    if (io.fail) throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+    fs.appendFileSync(fd, data);
+  };
+  const { port, store } = await start(t, { writeImpl });
+  const stream = openStream(port, `?since=${store.state.seq}`);
+  const res = await stream.ready;
+  const closed = new Promise((r) => res.on('close', r));
+  io.fail = true;
+  assert.throws(() => store.append('log', { level: 'info', message: 'x' }), /no space/);
+  await closed; // the client reconnects and refetches the snapshot
+  const snap = (await get(port, '/api/snapshot')).json();
+  assert.equal(snap.meta.storeFailed, 'ENOSPC: no space left on device');
+  const refused = await post(port, '/api/goals', { goal: 'anything' });
+  assert.equal(refused.status, 503);
+  assert.match(refused.json().error, /read-only/);
 });
 
 test('SSE backpressure: a client that stops reading is dropped, not buffered without bound', async (t) => {
@@ -370,14 +443,20 @@ test('manual ledger entries carry manual provenance and are validated', async (t
     { kind: 'fee', amount_usd: 3, stream: 's', occurred_at: 'yesterday' },
   ];
   for (const body of bad) assert.equal((await post(port, '/api/ledger/manual', body)).status, 400, JSON.stringify(body));
-  assert.equal(store.state.ledger.entryOrder.length, 1);
+  // Counted totals are USD and nothing converts: a EUR amount would be shown and summed as dollars.
+  const eur = await post(port, '/api/ledger/manual', { kind: 'revenue', amount_usd: 50, currency: 'EUR', stream: 'fiverr' });
+  assert.equal(eur.status, 400);
+  assert.match(eur.json().error, /only USD is supported until per-currency totals exist/);
+  assert.equal((await post(port, '/api/ledger/manual', { kind: 'fee', amount_usd: 1, currency: 'USD', stream: 'fiverr' })).status, 200);
+  assert.equal(store.state.ledger.entryOrder.length, 2);
+  assert.equal(store.state.ledger.totals.operatorRevenueCents, 1250);
 });
 
 test('connector sync: 501 when not configured, verified entries when it is', async (t) => {
   const off = await start(t);
   const notConfigured = await post(off.port, '/api/connectors/etsy/sync');
   assert.equal(notConfigured.status, 501);
-  assert.match(notConfigured.json().error, /ETSY_API_KEY, ETSY_SHARED_SECRET, ETSY_ACCESS_TOKEN and ETSY_SHOP_ID/);
+  assert.match(notConfigured.json().error, /ETSY_API_KEY, ETSY_SHARED_SECRET, ETSY_SHOP_ID and ETSY_ACCESS_TOKEN/);
   assert.equal((await post(off.port, '/api/connectors/shopify/sync')).status, 404);
 
   const usd = (cents) => ({ amount: cents, divisor: 100, currency_code: 'USD' });
@@ -387,9 +466,9 @@ test('connector sync: 501 when not configured, verified entries when it is', asy
   const on = await start(t, { connectors: { etsy } });
   const synced = await post(on.port, '/api/connectors/etsy/sync');
   assert.equal(synced.status, 200);
-  assert.deepEqual(synced.json(), { fetched: 1, newEntries: 1 });
+  assert.deepEqual(synced.json(), { fetched: 1, newEntries: 1, receipts: { fetched: 1, newEntries: 1 }, fees: { fetched: 1, newEntries: 0 } });
   assert.equal(on.store.state.ledger.totals.verifiedRevenueCents, 2500);
-  assert.deepEqual((await post(on.port, '/api/connectors/etsy/sync')).json(), { fetched: 1, newEntries: 0 }, 'dedup by externalId');
+  assert.deepEqual((await post(on.port, '/api/connectors/etsy/sync')).json(), { fetched: 1, newEntries: 0, receipts: { fetched: 1, newEntries: 0 }, fees: { fetched: 1, newEntries: 0 } }, 'dedup by externalId');
 });
 
 test('schedules are validated and logged', async (t) => {

@@ -15,13 +15,24 @@ function intInRange(value, name, min, max) {
   return n;
 }
 
+/** An optional positive integer id (Etsy ids are int64 but small enough to be safe integers). */
+function optionalId(value, name) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  const text = String(value).trim();
+  const n = Number(text);
+  if (!/^\d+$/.test(text) || !Number.isSafeInteger(n) || n < 1) throw new Error(`${name} must be a positive whole number, got ${JSON.stringify(value)}`);
+  return n;
+}
+
 /**
  * Build the runtime config from environment variables.
  * @param {Record<string, string|undefined>} [env=process.env]
  * @returns {{dataDir:string, host:string, port:number, stationPath:string, provider:'anthropic'|'scripted',
  *   modelOverride:string|null, image:{provider:string|null, model:string|null, apiKey:string|null},
- *   etsy:{apiKey:string|null, sharedSecret:string|null, accessToken:string|null, shopId:string|null, taxonomyId:string|null},
+ *   etsy:{apiKey:string|null, sharedSecret:string|null, accessToken:string|null, refreshToken:string|null,
+ *     shopId:string|null, taxonomyId:number|null, shippingProfileId:number|null},
  *   allowHosts:string[], tickMs:number}}
+ * @throws {Error} on a malformed PORT, OUTPOST_TICK_MS, ETSY_TAXONOMY_ID or ETSY_SHIPPING_PROFILE_ID
  */
 export function loadConfig(env = process.env) {
   const hasClaudeCredentials = Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN);
@@ -45,8 +56,12 @@ export function loadConfig(env = process.env) {
       apiKey: env.ETSY_API_KEY || null,
       sharedSecret: env.ETSY_SHARED_SECRET || null,
       accessToken: env.ETSY_ACCESS_TOKEN || null,
+      // Access tokens last ~1 h; with a refresh token the connector renews them and persists the
+      // rotated pair to <dataDir>/secrets/etsy-token.json (which then wins over these two).
+      refreshToken: env.ETSY_REFRESH_TOKEN || null,
       shopId: env.ETSY_SHOP_ID || null,
-      taxonomyId: env.ETSY_TAXONOMY_ID || null, // seller taxonomy id every Etsy listing needs
+      taxonomyId: optionalId(env.ETSY_TAXONOMY_ID, 'ETSY_TAXONOMY_ID'), // seller taxonomy id every Etsy listing needs
+      shippingProfileId: optionalId(env.ETSY_SHIPPING_PROFILE_ID, 'ETSY_SHIPPING_PROFILE_ID'), // sent with drafts when set
     },
     allowHosts: (env.OUTPOST_ALLOW_HOSTS || '')
       .split(',')

@@ -9,6 +9,7 @@ import { createDispatcher, createProviderFor } from '../sidecar/dispatcher.js';
 import { createScriptedProvider } from '../sidecar/providers/scripted.js';
 import { DEFAULT_SCRIPTS } from '../sidecar/providers/scripts.js';
 import { createStore } from '../sidecar/store.js';
+import { project } from '../shared/projector.js';
 
 const STATION = JSON.parse(fs.readFileSync(new URL('../config/station.json', import.meta.url), 'utf8'));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-'));
@@ -43,7 +44,7 @@ function blockingProvider() {
   };
 }
 
-function setup({ provider, scripts = {}, station = structuredClone(STATION), config = {}, now, dataDir = tmp() } = {}) {
+function setup({ provider, scripts = {}, station = structuredClone(STATION), config = {}, now, dataDir = tmp(), connectors = { etsy: { configured: false } } } = {}) {
   const store = createStore({ dataDir });
   if (!store.state.station) store.append('station.loaded', { station });
   const p = provider ?? createScriptedProvider({ scripts });
@@ -53,7 +54,7 @@ function setup({ provider, scripts = {}, station = structuredClone(STATION), con
     station,
     providerFor: () => p,
     imageProvider: null,
-    connectors: { etsy: { configured: false } },
+    connectors,
     now,
   });
   return { dataDir, store, dispatcher, station };
@@ -426,7 +427,7 @@ test('E-STOP aborts every run, blocks starts while engaged, and re-queues halted
   assert.equal(store.state.estop, true);
   await waitFor(() => status(store, a) === 'queued' && status(store, b) === 'queued', 'halted tasks to be re-queued');
   assert.deepEqual(payloads(store, 'run.finished').map((r) => r.outcome), ['aborted', 'aborted']);
-  assert.match(store.state.tasks[a].reason, /halted by E-STOP; re-queued \(attempt 2 of 2\)/);
+  assert.match(store.state.tasks[a].reason, /halted by E-STOP; re-queued \(operator halts do not use up attempts\)/);
   const c = dispatcher.createTask({ assignee: 'tally', title: 'C', brief: '' });
   assert.deepEqual(dispatcher.tick(), [], 'nothing starts while engaged');
   assert.equal(status(store, c), 'queued');
@@ -523,4 +524,135 @@ test('recover() expires approvals, interrupts runs, re-queues or fails tasks, an
   assert.match(s.state.tasks.task_2.reason, /gave up after 2 attempts/);
   assert.deepEqual([s.state.agents.nova.status, s.state.agents.quill.status], ['idle', 'idle']);
   assert.deepEqual(dispatcher.recover(), { approvalsExpired: 0, runsInterrupted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 });
+});
+
+// ---- E-STOP and side effects (RT-3, RT-6) -------------------------------------------------------
+
+test('E-STOP halts never use up attempts: two halts leave the task queued and its recipe intact (RT-6)', async () => {
+  const gate = blockingProvider();
+  const { store, dispatcher } = setup({ provider: gate.provider });
+  const { taskIds } = dispatcher.startRecipe('pod_listing', {});
+  const [first, ...rest] = taskIds;
+  dispatcher.start();
+  for (let cycle = 1; cycle <= 2; cycle += 1) {
+    await waitFor(() => store.state.tasks[first].runIds.length === cycle && status(store, first) === 'running', `run ${cycle} to start`);
+    dispatcher.setEstop(true);
+    await waitFor(() => status(store, first) === 'queued', `halt ${cycle} to re-queue the task`);
+    dispatcher.setEstop(false);
+  }
+  await waitFor(() => store.state.tasks[first].runIds.length === 3 && status(store, first) === 'running', 'a third run after two halts');
+  const halts = payloads(store, 'task.status').filter((p) => p.taskId === first && p.status === 'queued');
+  assert.equal(halts.length, 2);
+  for (const h of halts) assert.match(h.reason, /halted by E-STOP; re-queued \(operator halts do not use up attempts\)/);
+  assert.deepEqual(rest.map((id) => status(store, id)), ['queued', 'queued', 'queued'], 'no stage was cancelled');
+  dispatcher.setEstop(true);
+  await waitFor(() => status(store, first) === 'queued', 'the last run to halt');
+  dispatcher.stop();
+});
+
+const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+
+function publishFixture(etsy) {
+  const dataDir = tmp();
+  const holder = {};
+  const env = setup({ dataDir, scripts: { quill: (args) => publisher(holder.draft)(args) }, connectors: { etsy } });
+  const designs = ['a', 'b', 'c'].map((n) => writeArtifact({ store: env.store, dataDir }, { agentId: 'pixel', kind: 'image', title: n, filename: `${n}.png`, content: PNG, mime: 'image/png' }).artifactId);
+  const draft = {
+    title: 'Fern mug', description: 'An original fern mug.', tags: ['fern'], price_usd: 18, quantity: 5, who_made: 'i_did',
+    when_made: 'made_to_order', is_supply: false, artifact_ids: designs, ai_disclosure: 'AI assisted.', originality_note: 'Original.',
+  };
+  holder.draft = writeArtifact({ store: env.store, dataDir }, { agentId: 'quill', kind: 'listing_draft', title: 'Draft', content: JSON.stringify(draft) }).artifactId;
+  return env;
+}
+
+test('E-STOP during an approved publish: no upload after the halt, the draft receipt is kept, and the task is not re-run (RT-3)', async () => {
+  const calls = [];
+  const holder = {};
+  const etsy = {
+    configured: true,
+    async createDraftListing(_draft, opts) {
+      calls.push(['create', Boolean(opts?.signal)]);
+      await new Promise((r) => setTimeout(r, 100)); // ignores the signal: Etsy may already have it
+      return { listingId: 77, url: 'https://www.etsy.com/listing/77' };
+    },
+    async uploadListingImage(_id, _buf, name) {
+      calls.push(['upload', name, holder.store.state.estop]);
+      return { imageId: 1 };
+    },
+  };
+  const { store, dispatcher, dataDir } = publishFixture(etsy);
+  holder.store = store;
+  const id = dispatcher.createTask({ assignee: 'quill', title: 'Publish', brief: '' });
+  dispatcher.start();
+  await waitFor(() => payloads(store, 'approval.requested').length === 1, 'the approval request');
+  assert.match(payloads(store, 'approval.requested')[0].summary, /WILL CREATE an Etsy DRAFT listing/, 'the card says granting calls Etsy');
+  dispatcher.resolveApproval(payloads(store, 'approval.requested')[0].approvalId, 'granted');
+  await waitFor(() => calls.length === 1, 'createDraftListing to be in flight');
+  assert.deepEqual(calls[0], ['create', true], 'the run signal reaches the connector');
+
+  dispatcher.setEstop(true);
+  await waitFor(() => ['done', 'failed', 'cancelled', 'queued'].includes(status(store, id)), 'the halted task to settle');
+  assert.equal(status(store, id), 'failed');
+  assert.match(store.state.tasks[id].reason, /halted by E-STOP after an external action had started \(approved publish_listing\); not retried automatically/);
+
+  await waitFor(() => payloads(store, 'artifact.created').some((a) => a.kind === 'publish_receipt'), 'the receipt of the draft Etsy created');
+  assert.deepEqual(calls.filter((c) => c[0] === 'upload'), [], 'no outbound upload after E-STOP');
+  const receipt = payloads(store, 'artifact.created').find((a) => a.kind === 'publish_receipt');
+  const json = JSON.parse(fs.readFileSync(path.join(dataDir, receipt.path), 'utf8'));
+  assert.equal(json.listingId, 77);
+  assert.equal(json.images.skipped.length, 3);
+  assert.match(json.images.skipped[0].reason, /not uploaded: the run was halted/);
+
+  dispatcher.setEstop(false);
+  dispatcher.tick();
+  await new Promise((r) => setTimeout(r, 50));
+  dispatcher.stop();
+  assert.equal(payloads(store, 'approval.requested').length, 1, 'no second approval for the same draft');
+  assert.equal(store.state.tasks[id].runIds.length, 1);
+});
+
+test('a hung tool cannot pin a halted run: E-STOP ends it at once and frees the agent (RT-3)', async () => {
+  const etsy = { configured: true, createDraftListing: () => new Promise(() => {}), uploadListingImage: async () => ({ imageId: 1 }) };
+  const { store, dispatcher } = publishFixture(etsy);
+  const id = dispatcher.createTask({ assignee: 'quill', title: 'Publish', brief: '' });
+  dispatcher.start();
+  await waitFor(() => payloads(store, 'approval.requested').length === 1, 'the approval request');
+  dispatcher.resolveApproval(payloads(store, 'approval.requested')[0].approvalId, 'granted');
+  await waitFor(() => store.state.agents.quill.status === 'tool', 'the tool to start');
+  const runId = store.state.tasks[id].runIds[0];
+
+  dispatcher.setEstop(true);
+  await waitFor(() => store.state.runs[runId].outcome !== null, 'the run to end', 200);
+  assert.equal(store.state.runs[runId].outcome, 'aborted');
+  assert.equal(store.state.agents.quill.status, 'idle');
+  const halted = payloads(store, 'tool.result').find((r) => r.runId === runId && r.tool === 'publish_listing');
+  assert.equal(halted.ok, false);
+  assert.match(halted.output, /halted while running/);
+
+  dispatcher.setEstop(false);
+  const next = dispatcher.createTask({ assignee: 'quill', title: 'Next', brief: '' });
+  await waitFor(() => store.state.tasks[next].runIds.length === 1, 'the agent to take its next task');
+  dispatcher.setEstop(true);
+  dispatcher.stop();
+});
+
+// ---- recovery at scale (RT-8) ---------------------------------------------------------------------
+
+test('recover() is linear in the task count: 15,000 reviewed tasks boot in well under a second', () => {
+  const events = [{ type: 'station.loaded', payload: { station: STATION } }];
+  const add = (type, payload) => events.push({ type, payload });
+  for (let i = 0; i < 5000; i += 1) {
+    add('task.created', { taskId: `p${i}`, title: 'parent', brief: '', assignee: 'orion', createdBy: 'operator' });
+    add('task.created', { taskId: `c${i}`, title: 'child', brief: '', assignee: 'nova', createdBy: 'orion', parentTaskId: `p${i}` });
+    add('task.created', { taskId: `r${i}`, title: 'review', brief: '', assignee: 'orion', createdBy: 'system', parentTaskId: `p${i}`, kind: 'review' });
+    for (const t of [`p${i}`, `c${i}`, `r${i}`]) add('task.status', { taskId: t, status: 'done' });
+  }
+  const state = project(events.map((e, i) => ({ seq: i + 1, ts: '2026-10-01T00:00:00.000Z', actor: 'system', ...e })));
+  const store = { state, append: () => assert.fail('nothing needs repairing'), events: () => [] };
+  const dispatcher = createDispatcher({ store, config: { dataDir: tmp() }, station: STATION, providerFor: () => null });
+  const started = performance.now();
+  const summary = dispatcher.recover();
+  const ms = performance.now() - started;
+  assert.equal(summary.reviewsCreated, 0);
+  assert.ok(ms < 1000, `recover() took ${Math.round(ms)} ms for 15,000 tasks`);
 });

@@ -145,3 +145,58 @@ test('append after close throws', () => {
   store.close();
   assert.throws(() => store.append('log', { level: 'info', message: 'late' }), /closed/);
 });
+
+test('a failed write (short write + ENOSPC) is cut off and the store turns read-only (RT-2)', () => {
+  const dir = tmp();
+  const io = { fail: false };
+  // A short write: part of the line reaches the file, then the disk is full.
+  const writeImpl = (fd, data) => {
+    if (!io.fail) return fs.appendFileSync(fd, data);
+    fs.appendFileSync(fd, data.slice(0, 20));
+    throw Object.assign(new Error('no space left on device'), { code: 'ENOSPC' });
+  };
+  const store = createStore({ dataDir: dir, writeImpl });
+  store.append('log', { level: 'info', message: 'one' });
+  const before = fs.readFileSync(logFile(dir), 'utf8');
+  const notified = [];
+  store.onFailure((msg) => notified.push(msg));
+  const seen = [];
+  store.subscribe((e) => seen.push(e.seq));
+
+  io.fail = true;
+  const { lines } = captureStderr(() => assert.throws(() => store.append('log', { level: 'info', message: 'two' }), /no space/));
+  assert.match(lines.join('\n'), /read-only until restart/);
+  assert.equal(fs.readFileSync(logFile(dir), 'utf8'), before, 'the fragment is cut off: the file ends on a whole event');
+  assert.equal(store.state.seq, 1, 'nothing was applied');
+  assert.deepEqual(seen, [], 'nothing was announced');
+  assert.deepEqual(store.health(), { failed: 'ENOSPC: no space left on device' });
+  assert.deepEqual(notified, ['ENOSPC: no space left on device']);
+
+  io.fail = false; // space freed: still read-only, so no later event can merge into a fragment
+  assert.throws(() => store.append('log', { level: 'info', message: 'three' }), /read-only after a write failure/);
+  store.close();
+  const reopened = createStore({ dataDir: dir });
+  assert.deepEqual(reopened.events().map((e) => e.payload.message), ['one'], 'a restart recovers cleanly');
+  assert.equal(reopened.append('log', { level: 'info', message: 'two' }).seq, 2);
+  reopened.close();
+});
+
+test('events(since, limit) pages the log; logId names the log by its first event', () => {
+  const a = createStore({ dataDir: tmp() });
+  assert.equal(a.logId(), null, 'an empty log has no identity yet');
+  for (let i = 1; i <= 5; i += 1) a.append('log', { level: 'info', message: `m${i}` });
+  assert.deepEqual(a.events(1, 2).map((e) => e.seq), [2, 3]);
+  assert.deepEqual(a.events(4, 10).map((e) => e.seq), [5]);
+  assert.deepEqual(a.events(5, 10), []);
+  const id = a.logId();
+  assert.match(id, /^[0-9a-f]{16}$/);
+  const dir = tmp();
+  const b = createStore({ dataDir: dir });
+  b.append('log', { level: 'info', message: 'another log' });
+  assert.notEqual(b.logId(), id, 'another log (same seqs) has another identity');
+  b.close();
+  const again = createStore({ dataDir: dir });
+  assert.equal(again.logId(), b.logId(), 'stable across restarts');
+  again.close();
+  a.close();
+});

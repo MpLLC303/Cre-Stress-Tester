@@ -151,6 +151,20 @@ test('tally reports ledger numbers it read, even when the connector is not confi
   assert.match(final, /Saved to Ops memory/);
 });
 
+test('tally floors evidence coverage like the UI and names the UTC day of "today" (TL-14)', () => {
+  const ledger = {
+    totals: { verified_revenue_usd: 995, operator_revenue_usd: 5, claimed_revenue_usd: 0, fees_usd: 0, costs_usd: 0, net_counted_usd: 1000, verified_orders: 1, operator_orders: 1 },
+    evidence_coverage: 0.995,
+    runtime_spend_usd: { today: 0.12, total: 0.5, today_utc_date: '2026-10-01' },
+    unconverted: { GBP: { entries: 2 } },
+  };
+  const { calls } = simulate('tally', task({ title: 'Ledger report' }), (name) => (name === 'read_ledger' ? { content: ledger } : { content: 'ok' }));
+  const report = calls.find((c) => c.name === 'memory_write').input.content;
+  assert.match(report, /Evidence coverage: 99%/, 'never rounded up to 100%');
+  assert.match(report, /Runtime spend: \$0\.12 today \(UTC 2026-10-01\), \$0\.50 total/);
+  assert.match(report, /Not in the USD figures above: 2 GBP entries/);
+});
+
 test('PIXEL draws an original apparel typography SVG that passes the sanitizer', () => {
   for (const phrase of ['Grow Gently', 'Bloom Where The Wild Things Grow', 'Ivy & <Sage>']) {
     const svg = botanicalDesign(phrase);

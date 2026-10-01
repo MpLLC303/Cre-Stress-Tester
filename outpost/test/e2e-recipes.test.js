@@ -12,7 +12,7 @@ import { route } from '../sidecar/capability.js';
 import { loadConfig } from '../sidecar/config.js';
 import { createEtsyConnector } from '../sidecar/connectors/etsy.js';
 import { createDispatcher, createProviderFor } from '../sidecar/dispatcher.js';
-import { startStation } from '../sidecar/index.js';
+import { lockFile, startStation } from '../sidecar/index.js';
 import { SCRIPTED_NOTICE } from '../sidecar/providers/scripts.js';
 import { createStore } from '../sidecar/store.js';
 import { sanitizeSvg } from '../sidecar/svg.js';
@@ -288,4 +288,30 @@ test('boot: station.loaded is logged only when the layout changed; an invalid la
     return true;
   });
   assert.equal(fs.existsSync(path.join(freshDir, 'events.ndjson')), false, 'nothing was logged');
+});
+
+test('one sidecar per data dir: a second boot is refused before it touches the log (RT-1)', { timeout: 30_000 }, async (t) => {
+  const dataDir = tmp();
+  const a = await boot(t, dataDir);
+  // In-flight work the second instance would otherwise "recover" into A's live log.
+  await fetch(`${a.base}/api/estop`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-outpost-client': '1' }, body: JSON.stringify({ engaged: true }) });
+  await fetch(`${a.base}/api/recipes/pod_listing`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-outpost-client': '1' }, body: '{}' });
+  const log = path.join(dataDir, 'events.ndjson');
+  const before = fs.readFileSync(log);
+  for (const port of ['0', String(new URL(a.url).port)]) { // another port, and the same one
+    await assert.rejects(startStation({ ...configFor(dataDir), port: Number(port) }), /data dir .* is already in use by outpost pid \d+/);
+  }
+  assert.deepEqual(fs.readFileSync(log), before, 'the refused boot appended nothing');
+  assert.equal(fs.readFileSync(lockFile(fs.realpathSync(dataDir)), 'utf8').trim(), String(process.pid));
+
+  a.stop();
+  assert.equal(fs.existsSync(lockFile(dataDir)), false, 'stop() releases the lock');
+  const b = await boot(t, dataDir);
+  assert.ok(b.store.state.seq > 0, 'the next boot opens the same log');
+  b.stop();
+
+  // A lock left by a process that no longer exists is stale and taken over.
+  fs.writeFileSync(lockFile(dataDir), '2147483646\n');
+  const c = await boot(t, dataDir);
+  c.stop();
 });

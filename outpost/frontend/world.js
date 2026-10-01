@@ -1183,14 +1183,14 @@ export function createWorld(canvas, client) {
     g.globalAlpha = 1;
   }
 
-  function drawObject(g, o, now, state) {
+  function drawObject(g, o, now, state, frozen = false) {
     const spr = o.sprite;
     const X = o.tx * T;
     const Y = o.ty * T - OBJECT_OVERHANG;
     let f = 0;
     if (o.activeBy) {
       const tick = (now / 85) | 0;
-      f = (hash2(tick, o.i) & 7) < 2 ? 2 : 1;
+      f = frozen ? 1 : (hash2(tick, o.i) & 7) < 2 ? 2 : 1;
     }
     g.drawImage(spr.frames[f], X, Y);
     if (o.lamp) {
@@ -1201,7 +1201,7 @@ export function createWorld(canvas, client) {
       const lx = X + o.lamp.x;
       const ly = o.ty * T + o.lamp.y;
       if (lit) {
-        const pulse = state.estop ? 1 : 0.55 + 0.45 * Math.sin(now / 260);
+        const pulse = state.estop || frozen ? 1 : 0.55 + 0.45 * Math.sin(now / 260);
         g.globalAlpha = 0.28 * pulse;
         g.fillStyle = color;
         g.fillRect(lx - 3, ly - 2, o.lamp.w + 6, o.lamp.h + 4);
@@ -1239,11 +1239,11 @@ export function createWorld(canvas, client) {
     g.drawImage(av.sheet, sx, sy, AGENT_CELL_W, AGENT_CELL_H, ax - 7, ay - 17, AGENT_CELL_W, AGENT_CELL_H);
   }
 
-  function bubbleFor(a, av, now) {
+  function bubbleFor(a, av, now, frozen) {
     switch (a.status) {
-      case 'thinking': return bubbles.thinking[((now / 380) | 0) % 3];
+      case 'thinking': return bubbles.thinking[frozen ? 0 : ((now / 380) | 0) % 3];
       case 'tool': return av.toolBubble || toolBubble(a.tool);
-      case 'awaiting_approval': return bubbles.approval[((now / 420) | 0) % 2];
+      case 'awaiting_approval': return bubbles.approval[frozen ? 0 : ((now / 420) | 0) % 2];
       case 'error': return bubbles.error;
       case 'paused': return bubbles.paused;
       case 'handoff': return bubbles.handoff;
@@ -1251,7 +1251,7 @@ export function createWorld(canvas, client) {
     }
   }
 
-  function drawOverlays(g, state, now) {
+  function drawOverlays(g, state, now, frozen = false) {
     const agents = state.agents || {};
     for (const av of agentList) {
       const a = agents[av.id];
@@ -1262,7 +1262,7 @@ export function createWorld(canvas, client) {
       // object an agent works at (above it) stays visible
       const tag = a.status === 'idle' ? av.tagIdle : av.tag;
       g.drawImage(tag.canvas, ax - (tag.w >> 1), ay + 1);
-      const b = bubbleFor(a, av, now);
+      const b = bubbleFor(a, av, now, frozen);
       if (b) g.drawImage(b.canvas, ax + 5, ay - 12 - b.h);
     }
   }
@@ -1431,6 +1431,39 @@ export function createWorld(canvas, client) {
     drawText(g, sub, cx - (measure(sub, 'sm') >> 1), py + ph - 12, '#ffb3ba', 'sm');
   }
 
+  /**
+   * The event stream is down: the map is the last state the stream delivered, not the station now.
+   * Desaturate it and say so; status animations are frozen by the caller.
+   */
+  function drawLinkLost(g, link) {
+    g.fillStyle = 'rgba(8,10,16,0.55)';
+    g.fillRect(0, 0, model.WPX, model.HPX);
+    const label = link === 'reconnecting' ? 'LINK LOST' : 'CONNECTING';
+    const sub = 'LAST KNOWN STATE';
+    const sc = 3;
+    const tw = measure(label, 'md', sc);
+    const th = FONTS.md.h * sc;
+    const pw = Math.max(tw, measure(sub, 'sm')) + 40;
+    const ph = th + 34;
+    let cx;
+    let cy;
+    if (panMode) {
+      cx = Math.round((view.x + view.w / 2 - offX) / scale);
+      cy = Math.round((view.y + view.h / 2 - offY) / scale);
+    } else {
+      if (!model.estopAt) model.estopAt = findClearSpot(model, pw + 8, ph + 8);
+      cx = model.estopAt[0];
+      cy = model.estopAt[1];
+    }
+    const px = cx - (pw >> 1);
+    const py = cy - (ph >> 1);
+    g.fillStyle = 'rgba(10,12,20,0.92)';
+    g.fillRect(px, py, pw, ph);
+    outlineRect(g, px, py, pw, ph, '#8d97a8', 1);
+    drawText(g, label, cx - (tw >> 1), py + 10, '#c7cfdb', 'md', sc);
+    drawText(g, sub, cx - (measure(sub, 'sm') >> 1), py + ph - 12, '#8d97a8', 'sm');
+  }
+
   // ---------------------------------------------------------------- tooltip
 
   function tooltipLines(state) {
@@ -1523,7 +1556,7 @@ export function createWorld(canvas, client) {
     drawables.sort(byY);
   }
 
-  function render(now, state) {
+  function render(now, state, stale = false) {
     const g = fx;
     const W = model.WPX;
     const H = model.HPX;
@@ -1542,14 +1575,15 @@ export function createWorld(canvas, client) {
       if (!o.activeBy) continue;
       const s = o.sprite;
       const room = model.rooms[o.room];
-      const pulse = 0.8 + 0.2 * Math.sin(now / 340 + o.i);
+      const pulse = stale ? 1 : 0.8 + 0.2 * Math.sin(now / 340 + o.i);
       drawHalo(g, o.tx * T + s.left, o.ty * T - OBJECT_OVERHANG + s.top, s.right - s.left, s.bottom - s.top, room.color, pulse);
     }
     sortDrawables();
-    const frozen = !!state.estop;
+    // E-STOP or a dead event stream: nothing on the map may look like it is still working.
+    const frozen = !!state.estop || stale;
     const focusing = focusT.id && now < focusT.until && focusT.type === 'agent';
     for (const d of drawables) {
-      if (d.kind === 0) drawObject(g, d.ref, now, state);
+      if (d.kind === 0) drawObject(g, d.ref, now, state, frozen);
       else {
         const av = d.ref;
         let hl = 0;
@@ -1558,10 +1592,11 @@ export function createWorld(canvas, client) {
         drawAgent(g, av, now, frozen, hl);
       }
     }
-    drawOverlays(g, state, now);
+    drawOverlays(g, state, now, frozen);
     drawPackets(g, now);
     drawHighlights(g, now);
-    if (state.estop) drawEstop(g, now);
+    if (stale) drawLinkLost(g, client.link);
+    else if (state.estop) drawEstop(g, now);
     drawTooltip(g, state);
   }
 
@@ -1605,6 +1640,7 @@ export function createWorld(canvas, client) {
 
   let raf = 0;
   let lastT = 0;
+  let staleNow = null; // the frame time at which the event stream went down
 
   function tick(now) {
     raf = requestAnimationFrame(tick);
@@ -1620,8 +1656,13 @@ export function createWorld(canvas, client) {
     }
     if (dirty || state !== stateRef || state.seq !== derivedSeq) recomputeDerived(state);
     while (pendingHandoffs.length) spawnPacket(pendingHandoffs.shift(), now);
-    if (!state.estop) updateAgents(dt, now);
-    updatePackets(dt, now);
+    // Event stream down: the map is the last state delivered. Freeze the clock it is drawn with, so
+    // nothing (bubbles, halos, walkers, packets) keeps moving as if the station were still live.
+    const stale = client.link !== undefined && client.link !== 'live';
+    if (stale) staleNow ??= now;
+    else staleNow = null;
+    if (!state.estop && !stale) updateAgents(dt, now);
+    if (!stale) updatePackets(dt, now);
     if (panMode && panTargetX !== null) {
       panX += (panTargetX - panX) * Math.min(1, dt * 8);
       panY += (panTargetY - panY) * Math.min(1, dt * 8);
@@ -1632,7 +1673,7 @@ export function createWorld(canvas, client) {
       }
       applyPan();
     }
-    render(now, state);
+    render(stale ? staleNow : now, state, stale);
     blit();
   }
 

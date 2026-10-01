@@ -7,6 +7,8 @@ export const OPENAI_IMAGES_URL = 'https://api.openai.com/v1/images/generations';
 // (github.com/openai/openai-node, src/resources/images.ts). Override with OUTPOST_IMAGE_MODEL.
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 export const IMAGE_QUALITY = 'medium';
+/** One generation may take a while, but never forever: a hung request must not pin a run. */
+export const IMAGE_TIMEOUT_MS = 180_000;
 
 // Estimated USD per image at quality "medium", by model and size, from OpenAI's image pricing
 // (https://developers.openai.com/api/docs/pricing; OpenAI bills image generation by tokens, these
@@ -46,7 +48,7 @@ function apiErrorMessage(text) {
 /**
  * @param {{provider:string|null, model:string|null, apiKey:string|null}|null|undefined} config config.image
  * @param {{fetchImpl?: typeof fetch}} [deps]
- * @returns {null|{name:string, model:string, generate:(req:{prompt:string, size:string}) =>
+ * @returns {null|{name:string, model:string, generate:(req:{prompt:string, size:string, signal?:AbortSignal}) =>
  *   Promise<{buffer:Buffer, mime:string, requestId:string|null, estimatedCostUsd:number|null}>}}
  *   null when no provider is configured (or its key is missing)
  */
@@ -60,11 +62,13 @@ export function createImageProvider(config, { fetchImpl = fetch } = {}) {
   return {
     name: 'openai',
     model,
-    async generate({ prompt, size }) {
+    async generate({ prompt, size, signal }) {
+      signal?.throwIfAborted();
       const res = await fetchImpl(OPENAI_IMAGES_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({ model, prompt, size, quality: IMAGE_QUALITY, n: 1, output_format: 'png' }),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(IMAGE_TIMEOUT_MS)].filter(Boolean)),
       });
       const requestId = res.headers?.get?.('x-request-id') ?? null;
       const text = await res.text();

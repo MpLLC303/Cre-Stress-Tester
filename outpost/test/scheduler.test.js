@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createStore } from '../sidecar/store.js';
 import { createScheduler, cronMatches, parseSpec } from '../sidecar/scheduler.js';
+import { createDispatcher } from '../sidecar/dispatcher.js';
 
 const station = JSON.parse(fs.readFileSync(new URL('../config/station.json', import.meta.url), 'utf8'));
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'outpost-'));
@@ -168,4 +169,51 @@ test('start/stop drive tick on a timer', async () => {
   await new Promise((resolve) => setTimeout(resolve, 30));
   scheduler.stop();
   assert.equal(fired(store).length, 1);
+});
+
+// ---- no backlog behind a stall (RT-7) ------------------------------------------------------------
+
+function realSetup({ dailyUsd = 15 } = {}) {
+  const dataDir = tmp();
+  const store = createStore({ dataDir });
+  const st = structuredClone(station);
+  st.budgets.stationDailyUsd = dailyUsd;
+  store.append('station.loaded', { station: st });
+  // Never started: queued work stays queued, as it does while the budget holds it.
+  const dispatcher = createDispatcher({ store, config: { dataDir, tickMs: 60_000 }, station: st, providerFor: () => null });
+  const clock = { t: Date.now() };
+  const scheduler = createScheduler({ store, dispatcher, now: () => clock.t });
+  return { store, dispatcher, scheduler, clock };
+}
+
+const recipeRuns = (store) => Object.keys(store.state.recipes).length;
+const skipLogs = (store) => store.events().filter((e) => e.type === 'log' && /skipped/.test(e.payload.message));
+
+test('while the daily budget holds queued work, 12 h of an every-5m schedule add no backlog', () => {
+  const { store, scheduler, clock } = realSetup({ dailyUsd: 1 });
+  store.append('spend.recorded', { agentId: 'pixel', category: 'image', model: 'gpt-image-2', usd: 1 });
+  scheduler.addSchedule('every 5m', { recipe: 'ledger_report' });
+  for (let minute = 0; minute < 12 * 60; minute += 1) {
+    clock.t += 60_000;
+    scheduler.tick();
+  }
+  assert.ok(recipeRuns(store) <= 1, `${recipeRuns(store)} recipe runs queued behind a spent budget`);
+  assert.equal(skipLogs(store).length, 1, 'logged once, not every five minutes');
+  assert.match(skipLogs(store)[0].payload.message, /daily budget is spent/);
+});
+
+test('a schedule skips while its previous firing is unfinished, then fires again once it is', () => {
+  const { store, scheduler, clock } = realSetup();
+  const id = scheduler.addSchedule('every 5m', { recipe: 'ledger_report' });
+  for (let minute = 0; minute < 60; minute += 1) {
+    clock.t += 60_000;
+    scheduler.tick();
+  }
+  assert.equal(recipeRuns(store), 1, 'one firing; the next eleven found its task still queued');
+  assert.equal(skipLogs(store).length, 1);
+  assert.match(skipLogs(store)[0].payload.message, /previous firing still has 1 unfinished task/);
+  for (const taskId of store.state.schedules[id].lastTaskIds) store.append('task.status', { taskId, status: 'done' });
+  clock.t += 5 * 60_000;
+  assert.deepEqual(scheduler.tick(), [id]);
+  assert.equal(recipeRuns(store), 2);
 });

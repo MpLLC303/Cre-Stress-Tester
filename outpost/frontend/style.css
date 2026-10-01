@@ -216,8 +216,24 @@ code {
 .b-ok {
   color: var(--cyan);
 }
-.b-dim {
+.b-dim,
+.badge.provider.dim {
   color: var(--muted);
+}
+.badge.provider.danger {
+  color: var(--red);
+  background: rgba(255, 77, 94, 0.12);
+}
+/* Provenance of one record: produced by a scripted run (no model called). */
+.scripted-mark {
+  margin-right: 6px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  line-height: 1.5;
+  background: rgba(255, 176, 0, 0.1);
+}
+.row .scripted-mark {
+  margin: 0 0 0 auto;
 }
 .badge.provider {
   white-space: normal;
@@ -301,6 +317,14 @@ code {
 .chip-appr[data-state='warn'] .chip-val,
 .chip-appr[data-state='warn'] .chip-label {
   color: var(--amber);
+}
+/* Event stream down: the chip shows the last value the stream delivered. */
+.chip[data-state='stale'] {
+  opacity: 0.55;
+  border-style: dashed;
+}
+.chip[data-state='stale'] .chip-val {
+  text-shadow: none;
 }
 
 .estop {
@@ -511,6 +535,9 @@ code {
 }
 .t-danger {
   color: var(--red);
+}
+.t-warn {
+  color: var(--amber);
 }
 .empty {
   color: var(--muted);
@@ -1217,6 +1244,66 @@ legend {
 .appr-summary {
   color: var(--amber);
 }
+
+/* web taint: content derived from web pages may carry injected instructions */
+.approval.tainted {
+  border-width: 2px;
+  box-shadow: 0 0 14px rgba(255, 176, 0, 0.32);
+}
+.taint-banner {
+  display: grid;
+  gap: 3px;
+  padding: 6px 8px;
+  background: var(--amber);
+  color: #140d00;
+  min-width: 0;
+}
+.taint-banner strong {
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
+}
+.taint-why {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.taint-banner .link {
+  color: inherit;
+  text-decoration: underline;
+}
+.taint-mark {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
+  color: var(--amber);
+  border: 1px solid rgba(255, 176, 0, 0.6);
+  background: rgba(255, 176, 0, 0.1);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.badge.b-taint {
+  color: var(--amber);
+  background: rgba(255, 176, 0, 0.12);
+}
+.taint-row {
+  overflow-wrap: anywhere;
+}
+.unconverted {
+  margin: 6px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.ledger-honesty {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+.ledger-honesty li + li {
+  margin-top: 2px;
+}
+
 .appr-input,
 .art-pre {
   margin: 0;
