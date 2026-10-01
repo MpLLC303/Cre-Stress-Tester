@@ -63,9 +63,10 @@ function view({ task = {}, messages = [] }) {
     brief,
     goal: (task.brief || task.title || '').trim(),
     calls,
-    // Ids quoted inside artifact previews are references, not inputs, so the message is only a
-    // fallback for a task object that arrives without its inputs.
-    inputIds: task.inputs?.length ? unique(task.inputs) : unique(firstMessage.match(ART_ID) || []),
+    // Ids quoted in the task message (artifact previews, child-task titles and summaries) are
+    // references, not inputs: a review whose publish was denied quotes the draft it must not
+    // resubmit. The message is only a fallback for a task object that has no inputs list at all.
+    inputIds: Array.isArray(task.inputs) ? unique(task.inputs) : unique(firstMessage.match(ART_ID) || []),
     inputs: reads.map((c) => c.result.json),
     /** Value of a `Label: "value"` line in the brief (recipes and delegations write these). */
     field: (label) => brief.match(new RegExp(`^${escapeRegExp(label)}:\\s*"(.*)"\\s*$`, 'm'))?.[1]?.trim() || null,

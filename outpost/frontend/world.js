@@ -144,7 +144,7 @@ function buildModel(station) {
       const obj = {
         i: objects.length, id: o.id, type: o.type, room: room.i, tx, ty,
         sprite: makeObjectSprite(o.type, room.color), lamp: objectLamp(o.type),
-        grants: OBJECT_GRANTS[o.type] || [], activeBy: null, activeTool: null,
+        grants: OBJECT_GRANTS[o.type] || [], activeBy: null, activeTool: null, pendingTool: null,
         isGate: o.type === 'publish_gate' || o.type === 'delivery_gate',
       };
       objects.push(obj);
@@ -797,6 +797,7 @@ export function createWorld(canvas, client) {
     for (const o of model.objects) {
       o.activeBy = null;
       o.activeTool = null;
+      o.pendingTool = null;
     }
     for (const room of model.rooms) {
       room.crew = 0;
@@ -825,7 +826,12 @@ export function createWorld(canvas, client) {
       const ap = state.approvals[id];
       if (ap.status !== 'pending') continue;
       const av = agentViz.get(ap.agentId);
-      if (av) model.rooms[av.room].pending = true;
+      if (!av) continue;
+      model.rooms[av.room].pending = true;
+      // the gate lamp lights only on the object in that room that grants the requested tool
+      for (const o of model.rooms[av.room].objects) {
+        if (o.lamp && o.grants.includes(ap.tool) && !o.pendingTool) o.pendingTool = ap.tool;
+      }
     }
     // movement targets
     const claimed = new Set();
@@ -1188,11 +1194,10 @@ export function createWorld(canvas, client) {
     }
     g.drawImage(spr.frames[f], X, Y);
     if (o.lamp) {
-      const room = model.rooms[o.room];
       let color = '#2a1d12';
       let lit = false;
       if (state.estop) { color = '#ff2a3c'; lit = true; }
-      else if (room.pending) { color = '#ffb020'; lit = true; }
+      else if (o.pendingTool) { color = '#ffb020'; lit = true; }
       const lx = X + o.lamp.x;
       const ly = o.ty * T + o.lamp.y;
       if (lit) {
@@ -1455,7 +1460,7 @@ export function createWorld(canvas, client) {
       }
       if (o.isGate) {
         if (state.estop) lines.push({ text: 'E-STOP ENGAGED', color: '#ff4d5e', size: 'sm' });
-        else if (room.pending) lines.push({ text: 'APPROVAL PENDING IN ROOM', color: '#ffb020', size: 'sm' });
+        else if (o.pendingTool) lines.push({ text: `APPROVAL PENDING: ${o.pendingTool}`, color: '#ffb020', size: 'sm' });
       }
       return { lines, border: room.color };
     }
@@ -1572,7 +1577,13 @@ export function createWorld(canvas, client) {
       ctx.rect(view.x, view.y, view.w, view.h);
       ctx.clip();
     }
-    if (sharp) {
+    if (sharp === 1) {
+      // box slightly smaller than 1:1: one smooth downscale, no prescale copy needed
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(frame, 0, 0, frame.width, frame.height, offX, offY, Math.round(frame.width * scale), Math.round(frame.height * scale));
+      ctx.imageSmoothingEnabled = false;
+    } else if (sharp) {
       const pw = frame.width * sharp;
       const ph = frame.height * sharp;
       if (!pre || pre.width !== pw || pre.height !== ph) {
@@ -1658,6 +1669,8 @@ export function createWorld(canvas, client) {
     const dpr = window.devicePixelRatio || 1;
     // Keep one world pixel at least ~0.75 CSS px so the pixel font stays legible; when the
     // box cannot fit the whole station at that size, switch to a draggable view + overview.
+    // (Continuous threshold: a box a few px short of 1:1, e.g. when a banner appears, must
+    // still show the whole station rather than flip into pan mode.)
     const minS = Math.max(1, Math.ceil(dpr * 0.75 - 1e-6));
     const fitF = Math.min(bw / WPX, bh / HPX);
     const fit = Math.floor(fitF);
@@ -1667,9 +1680,9 @@ export function createWorld(canvas, client) {
     view.h = bh;
     mini.on = false;
     sharp = 0;
-    if (fit >= minS) {
+    if (fitF >= dpr * 0.75 - 1e-6) {
       panMode = false;
-      if (fit / fitF < 0.8) {
+      if (fit < 1 || fit / fitF < 0.8) {
         // An integer scale would waste a large part of the box (typical at DPR 1). Fill it
         // with "sharp bilinear": nearest-neighbour prescale to the next integer, then one
         // smooth downscale, so every world pixel keeps the same size (no uneven columns).
@@ -1714,6 +1727,9 @@ export function createWorld(canvas, client) {
         panY = view.y + Math.floor((view.h - HPX * scale) / 2);
       }
       applyPan();
+      // The box often changes size right after a selection (the phone sheet opening shrinks
+      // the map): keep what was just selected or focused in view.
+      if (focusT.id && typeof focusT.x === 'number' && performance.now() < focusT.until) centreOn(focusT.x, focusT.y, false);
     }
     canvas.style.touchAction = panMode ? 'none' : '';
     canvas.style.cursor = panMode ? 'grab' : 'default';
@@ -1736,6 +1752,18 @@ export function createWorld(canvas, client) {
     panY = _pan[1];
     offX = Math.round(panX);
     offY = Math.round(panY);
+  }
+
+  /** World point to centre on for an agent / room / object id (null if unknown). */
+  function focusPoint(id) {
+    if (!model) return null;
+    const av = agentViz.get(id);
+    if (av) return { type: 'agent', x: av.x, y: av.y - 8 };
+    const r = model.roomIndex.get(id);
+    if (r) return { type: 'room', x: (r.x + r.w / 2) * T, y: (r.y + r.h / 2) * T };
+    const o = model.objIndex.get(id);
+    if (o) return { type: 'object', x: o.tx * T + T / 2, y: o.ty * T };
+    return null;
   }
 
   /** Pan so world point (wx, wy) is centred in the view (optionally animated). */
@@ -1956,7 +1984,8 @@ export function createWorld(canvas, client) {
     }
     const hit = hitAt(e.clientX, e.clientY);
     if (!hit) return;
-    focusT = { id: hit.id, type: hit.type, until: performance.now() + 700 };
+    const pt = focusPoint(hit.id);
+    focusT = { id: hit.id, type: hit.type, until: performance.now() + 700, x: pt ? pt.x : hoverWX, y: pt ? pt.y : hoverWY };
     for (const fn of selectFns.slice()) {
       try { fn({ type: hit.type, id: hit.id }); } catch (err) { console.error(err); }
     }
@@ -2009,27 +2038,10 @@ export function createWorld(canvas, client) {
     },
     focus(id) {
       if (!model || !id) return;
-      let type = null;
-      let cx = 0;
-      let cy = 0;
-      if (agentViz.has(id)) {
-        type = 'agent';
-        const av = agentViz.get(id);
-        cx = av.x;
-        cy = av.y - 8;
-      } else if (model.roomIndex.has(id)) {
-        type = 'room';
-        const r = model.roomIndex.get(id);
-        cx = (r.x + r.w / 2) * T;
-        cy = (r.y + r.h / 2) * T;
-      } else if (model.objIndex.has(id)) {
-        type = 'object';
-        const o = model.objIndex.get(id);
-        cx = o.tx * T + T / 2;
-        cy = o.ty * T;
-      } else return;
-      focusT = { id, type, until: performance.now() + FOCUS_MS };
-      if (panMode) centreOn(cx, cy, true);
+      const pt = focusPoint(id);
+      if (!pt) return;
+      focusT = { id, type: pt.type, until: performance.now() + FOCUS_MS, x: pt.x, y: pt.y };
+      if (panMode) centreOn(pt.x, pt.y, true);
     },
     destroy() {
       destroyed = true;

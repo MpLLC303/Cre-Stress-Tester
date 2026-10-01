@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node sidecar/index.js",
     "demo": "OUTPOST_PROVIDER=scripted OUTPOST_DATA=./data-demo node sidecar/index.js",
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "smoke:ui": "node scripts/ui-smoke.mjs"
   },
   "dependencies": {

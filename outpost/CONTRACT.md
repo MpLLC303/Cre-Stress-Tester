@@ -56,7 +56,9 @@ outpost/
   sidecar/dispatcher.js   createDispatcher(opts)
   sidecar/server.js       createServer(opts)
   sidecar/index.js        main()
-  frontend/index.html, app.js, world.js, ui.js, style.css
+  frontend/index.html, main.js, app.js, world.js, sprites.js, pixelfont.js, ui.js, style.css
+  scripts/fixture-server.mjs  dev-only synthetic event server for UI work (never product state)
+  scripts/ui-smoke.mjs        Playwright smoke test: node scripts/ui-smoke.mjs <baseUrl> <outDir>
   test/*.test.js          node:test
 ```
 
@@ -271,12 +273,19 @@ origins, which is never answered) and, if `Origin` is present, it must match the
 Errors are JSON `{error}`.
 
 ### frontend
-Vanilla ES modules, no build step, served by the sidecar. `app.js` fetches `/api/snapshot`, then
-opens `EventSource('/api/events?since=<seq>')` and applies each event with `apply` from
-`/shared/projector.js`; on error it reconnects with the latest seq. `world.js` exports
-`createWorld(canvas, store)` (procedural pixel art on a 56×33 grid of 16 px tiles rendered at an
-integer scale; rooms, walls, doors, hallways, objects, agents with name tags and status bubbles,
-packets travelling hallways on `handoff`). `ui.js` exports `createUI(root, store)` (top bar with
+Vanilla ES modules, no build step, served by the sidecar. `main.js` wires
+`createClient()` → `await client.ready` → `createWorld(canvas, client)` → `createUI(root, client, world)`.
+`app.js` exports `createClient()` → `{ state, meta, ready, subscribe(fn), post(path, body), artifactUrl(id) }`
+(`subscribe` calls `fn(event)` after each apply and `fn(null)` after a (re)snapshot; `post` sends
+`content-type: application/json` + `x-outpost-client: 1` and throws `Error(json.error)` on !ok). It
+fetches `/api/snapshot`, then opens `EventSource('/api/events?since=<seq>')` and applies each event
+with `apply` from `/shared/projector.js`; on error it closes, waits 1 s and reopens with
+`since=state.seq`, refetching the snapshot if the server's log went backwards. `world.js` exports
+`createWorld(canvas, client)` → `{ onSelect(fn), focus(id), destroy() }` (procedural pixel art on a
+56×33 grid of 16 px tiles: crisp scale when the box allows it, a draggable view + overview on small
+screens; rooms, walls, doors, hallways, objects, agents with name tags and status bubbles, packets
+travelling hallways on `handoff`; `sprites.js` and `pixelfont.js` are its brushes). `ui.js` exports
+`createUI(root, client, world)` → `{ open(selection), openArtifact(id) }` (top bar with
 provider badge + E-STOP + spend + verified revenue/coverage; room terminal, commander dossier, ledger
 terminal, approvals drawer, task/recipe launcher, artifact viewer, event feed). All artifacts are
 displayed via `<img src="/api/artifacts/<id>/content">` (SVG in `<img>` cannot run script) or as

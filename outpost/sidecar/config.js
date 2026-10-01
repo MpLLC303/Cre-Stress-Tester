@@ -20,7 +20,7 @@ function intInRange(value, name, min, max) {
  * @param {Record<string, string|undefined>} [env=process.env]
  * @returns {{dataDir:string, host:string, port:number, stationPath:string, provider:'anthropic'|'scripted',
  *   modelOverride:string|null, image:{provider:string|null, model:string|null, apiKey:string|null},
- *   etsy:{apiKey:string|null, sharedSecret:string|null, accessToken:string|null, shopId:string|null},
+ *   etsy:{apiKey:string|null, sharedSecret:string|null, accessToken:string|null, shopId:string|null, taxonomyId:string|null},
  *   allowHosts:string[], tickMs:number}}
  */
 export function loadConfig(env = process.env) {
@@ -46,6 +46,7 @@ export function loadConfig(env = process.env) {
       sharedSecret: env.ETSY_SHARED_SECRET || null,
       accessToken: env.ETSY_ACCESS_TOKEN || null,
       shopId: env.ETSY_SHOP_ID || null,
+      taxonomyId: env.ETSY_TAXONOMY_ID || null, // seller taxonomy id every Etsy listing needs
     },
     allowHosts: (env.OUTPOST_ALLOW_HOSTS || '')
       .split(',')
