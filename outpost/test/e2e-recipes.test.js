@@ -227,7 +227,7 @@ test('restart mid-approval: the request expires, the run is interrupted, the tas
   });
   t.after(() => dispatcher.stop());
 
-  assert.deepEqual(dispatcher.recover(), { approvalsExpired: 1, runsInterrupted: 1, tasksRequeued: 1, tasksFailed: 0, agentsReset: 1, reviewsCreated: 0 });
+  assert.deepEqual(dispatcher.recover(), { approvalsExpired: 1, runsInterrupted: 1, tasksCompleted: 0, tasksRequeued: 1, tasksFailed: 0, agentsReset: 1, reviewsCreated: 0 });
   assert.equal(store.state.approvals[approvalId].status, 'expired');
   assert.equal(store.state.runs[runId].outcome, 'interrupted');
   assert.equal(store.state.tasks[taskId].status, 'queued');

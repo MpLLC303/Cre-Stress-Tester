@@ -4,9 +4,10 @@
 // - every request sends `x-api-key: <keystring>:<shared_secret>` (the shared secret is enforced
 //   since 2026-02-09, github.com/etsy/open-api/discussions/1529) plus `Authorization: Bearer <token>`;
 // - access tokens last about an hour. With a refresh token, a 401 (or a known expiry) triggers
-//   POST https://api.etsy.com/v3/public/oauth/token (grant_type=refresh_token, client_id=<keystring>,
-//   refresh_token) and ONE retry. Etsy rotates the refresh token, so the new pair is written
-//   atomically, mode 0600, to <dataDir>/secrets/etsy-token.json and preferred over the env on boot;
+//   POST <token URL> (grant_type=refresh_token, client_id=<keystring>, refresh_token) and ONE
+//   retry; the URL is ETSY_TOKEN_URL below unless the ETSY_TOKEN_URL env var overrides it. Etsy
+//   rotates the refresh token, so the new pair is written atomically, mode 0600, to
+//   <dataDir>/secrets/etsy-token.json and preferred over the env on boot;
 // - getShopReceipts: GET /shops/{shop_id}/receipts, limit 1..100 + offset, response {count, results};
 // - Money is {amount, divisor, currency_code}; `subtotal` is already net of coupon discounts, so
 //   revenue is computed from `total_price` (items) + `total_shipping_cost` - `discount_amt`,
@@ -43,6 +44,14 @@ export const ETSY_SETUP_HINT =
 /** Per-request deadlines: a hung Etsy call fails instead of holding a run (and its agent) forever. */
 export const ETSY_REQUEST_TIMEOUT_MS = 30_000;
 export const ETSY_UPLOAD_TIMEOUT_MS = 120_000;
+/**
+ * Default OAuth token endpoint. Etsy's sources disagree on the host: the authentication guide
+ * (developers.etsy.com/documentation/essentials/authentication) uses
+ * https://api.etsy.com/v3/public/oauth/token, while the OpenAPI spec's oauth2 security scheme
+ * (developers.etsy.com/documentation/reference, openapi.etsy.com spec) lists
+ * https://openapi.etsy.com/v3/public/oauth/token. The guide's URL is the default; set
+ * ETSY_TOKEN_URL (config.etsy.tokenUrl) to switch without a code change.
+ */
 export const ETSY_TOKEN_URL = 'https://api.etsy.com/v3/public/oauth/token';
 export const TOKEN_FILE_SCHEMA = 'outpost.etsy-token/1';
 const PAGE_MAX = 100;
@@ -358,15 +367,16 @@ const defaultLog = (msg) => console.error(`outpost etsy: ${msg}`);
 /**
  * @param {{apiKey?:string|null, sharedSecret?:string|null, accessToken?:string|null, refreshToken?:string|null,
  *   shopId?:string|null, taxonomyId?:number|string|null, shippingProfileId?:number|string|null,
- *   tokenFile?:string|null, fetchImpl?:typeof fetch, now?:() => number, log?:(msg:string) => void,
- *   feeLookbackDays?:number}} opts
+ *   tokenFile?:string|null, tokenUrl?:string|null, fetchImpl?:typeof fetch, now?:() => number,
+ *   log?:(msg:string) => void, feeLookbackDays?:number}} opts
  *   tokenFile: where rotated tokens are persisted (index.js: <dataDir>/secrets/etsy-token.json);
- *   null keeps them in memory only.
+ *   null keeps them in memory only. tokenUrl: OAuth token endpoint (null: ETSY_TOKEN_URL).
  */
 export function createEtsyConnector({
   apiKey, sharedSecret, accessToken, refreshToken = null, shopId, taxonomyId = null, shippingProfileId = null,
-  tokenFile = null, fetchImpl = fetch, now = Date.now, log = defaultLog, feeLookbackDays = 90,
+  tokenFile = null, tokenUrl = null, fetchImpl = fetch, now = Date.now, log = defaultLog, feeLookbackDays = 90,
 } = {}) {
+  const tokenEndpoint = tokenUrl || ETSY_TOKEN_URL;
   const seen = new Set();
   // A value under 4 characters is not a credential Etsy issues, and replacing every occurrence of
   // it would shred the message rather than protect anything.
@@ -418,7 +428,7 @@ export function createEtsyConnector({
     let res;
     let text;
     try {
-      res = await fetchImpl(ETSY_TOKEN_URL, {
+      res = await fetchImpl(tokenEndpoint, {
         method: 'POST',
         headers: { 'x-api-key': `${apiKey}:${sharedSecret}`, 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
         body,

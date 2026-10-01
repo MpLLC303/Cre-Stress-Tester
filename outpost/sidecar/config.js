@@ -24,15 +24,28 @@ function optionalId(value, name) {
   return n;
 }
 
+/** An optional https URL (credentials are sent to it, so plain http is refused). */
+function optionalHttpsUrl(value, name) {
+  if (value === undefined || value === null || String(value).trim() === '') return null;
+  let url;
+  try {
+    url = new URL(String(value).trim());
+  } catch {
+    throw new Error(`${name} must be an https URL, got ${JSON.stringify(value)}`);
+  }
+  if (url.protocol !== 'https:') throw new Error(`${name} must be an https URL, got ${JSON.stringify(value)}`);
+  return url.href;
+}
+
 /**
  * Build the runtime config from environment variables.
  * @param {Record<string, string|undefined>} [env=process.env]
  * @returns {{dataDir:string, host:string, port:number, stationPath:string, provider:'anthropic'|'scripted',
  *   modelOverride:string|null, image:{provider:string|null, model:string|null, apiKey:string|null},
  *   etsy:{apiKey:string|null, sharedSecret:string|null, accessToken:string|null, refreshToken:string|null,
- *     shopId:string|null, taxonomyId:number|null, shippingProfileId:number|null},
+ *     shopId:string|null, taxonomyId:number|null, shippingProfileId:number|null, tokenUrl:string|null},
  *   allowHosts:string[], tickMs:number}}
- * @throws {Error} on a malformed PORT, OUTPOST_TICK_MS, ETSY_TAXONOMY_ID or ETSY_SHIPPING_PROFILE_ID
+ * @throws {Error} on a malformed PORT, OUTPOST_TICK_MS, ETSY_TAXONOMY_ID, ETSY_SHIPPING_PROFILE_ID or ETSY_TOKEN_URL
  */
 export function loadConfig(env = process.env) {
   const hasClaudeCredentials = Boolean(env.ANTHROPIC_API_KEY || env.ANTHROPIC_AUTH_TOKEN);
@@ -62,6 +75,9 @@ export function loadConfig(env = process.env) {
       shopId: env.ETSY_SHOP_ID || null,
       taxonomyId: optionalId(env.ETSY_TAXONOMY_ID, 'ETSY_TAXONOMY_ID'), // seller taxonomy id every Etsy listing needs
       shippingProfileId: optionalId(env.ETSY_SHIPPING_PROFILE_ID, 'ETSY_SHIPPING_PROFILE_ID'), // sent with drafts when set
+      // OAuth token endpoint override; null uses the connector's ETSY_TOKEN_URL
+      // (https://api.etsy.com/v3/public/oauth/token). See connectors/etsy.js for why it is configurable.
+      tokenUrl: optionalHttpsUrl(env.ETSY_TOKEN_URL, 'ETSY_TOKEN_URL'),
     },
     allowHosts: (env.OUTPOST_ALLOW_HOSTS || '')
       .split(',')

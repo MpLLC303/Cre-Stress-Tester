@@ -156,7 +156,7 @@ A flat subscription can therefore be cheaper or dearer than metered billing. Its
 
 ## 3. What an honest replica costs per unit of output
 
-**Prices.** Claude Opus 5.5 is $4 / $20 per MTok, with cache reads at $0.20, 5-minute cache writes at $5, 1-hour writes at $8, and batch at 50% off. Web search is $10 per 1,000. [fact; `sidecar/pricing.js:13-24`; the batch discount is from the claude-api skill, not pricing.js]
+**Prices.** Claude Opus 5.5 is $4 / $20 per MTok, with cache reads at $0.20, 5-minute cache writes at $5, 1-hour writes at $8, and batch at 50% off. Web search is $10 per 1,000. [fact; `sidecar/pricing.js:14-25`; the batch discount is from the claude-api skill, not pricing.js]
 
 **Token profiles are modelled, not measured.**
 - Lean: research amortized over 20 listings; brief; vision QA of 2 images at ~2.1K tokens each (w·h/750); copy; a 4-turn publish loop.
@@ -193,10 +193,10 @@ This covers generation cost only. Agent loops that browse routinely exceed the h
 
 **Outpost ceilings.**
 - Per-run caps (`config/station.json:85-157`): ORION $1.50; NOVA, PIXEL, VEGA and FLUX $1.00; QUILL $0.75; TALLY $0.50.
-- One `pod_listing` pass (NOVA → PIXEL → QUILL → ORION, plus the delegated publish run) therefore has a nominal ceiling of about **$5.00**.
-- Budgets are checked before each turn, so a run can overshoot by its last turn (`sidecar/loop.js:203-222`).
+- One `pod_listing` pass with the publish granted is **six runs**: NOVA → PIXEL → QUILL → ORION, then QUILL's delegated publish run and ORION's review of it. Its ceiling from the code is therefore **$6.50** ($1.00 + $1.00 + $0.75 + $1.50 + $0.75 + $1.50; run count measured with the scripted provider). A revision that ORION delegates adds runs, delegation chains are capped at 8 deep, and the daily cap bounds everything.
+- Budgets are checked before every provider call and before every tool call (`sidecar/loop.js:206-212, :365, :413, :435`). Each turn's `max_tokens` is capped at what the remaining run or daily budget buys at the model's output rate, never below 16,000 tokens (`loop.js:336-341`), so a run can overshoot by at most its last turn.
 - The $15 station-wide daily cap (`station.json:161`) allows about 52 lean or 5 heavy listings a day, counting LLM plus images.
-- Every agent runs claude-opus-5-5 with adaptive thinking (`sidecar/providers/anthropic.js:45`), which is billed as output. Moving copy and QA to Sonnet 5.5 ($2 / $10) roughly halves those stages.
+- Every agent in the default layout runs claude-opus-5-5 (`config/station.json:82-154`), which the provider sends with adaptive thinking and display updates (`sidecar/providers/anthropic.js:124-132, :216-218`). Thinking is billed as output. Moving copy and QA to Sonnet 5.5 ($2 / $10) roughly halves those stages.
 
 ---
 
@@ -204,7 +204,7 @@ This covers generation cost only. Agent loops that browse routinely exceed the h
 
 | Area | What a replica must implement | Status |
 | --- | --- | --- |
-| **Etsy auth** | OAuth2 code flow with PKCE (S256 + `state`): `etsy.com/oauth/connect`, token endpoint `openapi.etsy.com/v3/public/oauth/token`. **Access tokens last 1 h**; refresh tokens last ~90 days and rotate on refresh. | Endpoints [fact, spec mirror]; lifetimes *re-verify* |
+| **Etsy auth** | OAuth2 code flow with PKCE (S256 + `state`): `etsy.com/oauth/connect`. The token endpoint's host is ambiguous: the spec's oauth2 scheme lists `openapi.etsy.com/v3/public/oauth/token`, while Etsy's authentication guide uses `api.etsy.com/v3/public/oauth/token`. Outpost defaults to the guide's host, and `ETSY_TOKEN_URL` switches it without a code change (`sidecar/connectors/etsy.js:47-55`, `sidecar/config.js:80`). **Access tokens last 1 h**; refresh tokens last ~90 days and rotate on refresh. | Connect URL and spec host [fact, spec mirror]; which token host answers is unverified (configurable); lifetimes *re-verify* |
 | **Key header** | `x-api-key: keystring:shared_secret` on every request; required since **2026-02-09** ([#1529](https://github.com/etsy/open-api/discussions/1529)) | [fact] |
 | **Listing writes** | `createDraftListing` (form-encoded, `listings_w`) → `uploadListingImage` (multipart; ≤ 20; colour/size async) → `updateListing state=active`, which "requires that the listing have an image set" | [fact]; accepted image formats are not in the spec (*re-verify*) |
 | **Required fields** | `quantity, title, description, price, who_made, when_made, taxonomy_id`. Activating a physical listing needs a valid shipping profile, and `return_policy_id` outside the EU. [#1524](https://github.com/etsy/open-api/discussions/1524) allows drafts without `shipping_profile_id`, but the 2026-09-26 spec still says "required when physical", so test it. | [fact]; conflict open |
@@ -281,17 +281,18 @@ This covers generation cost only. Agent loops that browse routinely exceed the h
 
 | Control | Where | Enforcement | Gap |
 | --- | --- | --- | --- |
-| `ai_disclosure`, `originality_note` required | `sidecar/tools/commerce.js:43-44` | The draft is rejected if either is empty. | Both are self-assertions. |
-| Disclosure appended to the buyer-visible description | `commerce.js:93-107` | Code | Etsy's AI field is still a **human step**. |
-| ™ © ® rejected in tags | `commerce.js:15, :30` | Validation | Bare brand names pass. There is no trademark or similarity gate yet. |
-| The research room cannot publish or touch money | `config/station.json:18-28`, `shared/grants.js:5-18`, per-call `checkCall` | Re-checked on every call | The research→production hallway (`station.json:73`) carries web-derived artifacts to the room holding the publish gate. |
-| Publish = approval + **Etsy DRAFT only** | `commerce.js:129-159`; `CONTRACT.md:21-23` | The run pauses for the operator, and `state=active` is never sent. With no connector, it is a labelled dry run. | The operator sets the disclosures, shipping and returns, and activates the listing. |
-| Deliver = **human hand-off** | `commerce.js:194-225` | A sha256-verified hand-off sheet is written; nothing is sent. | Per-order customization and the client's AI stance |
-| Originality and untrusted-content rules | `sidecar/prompts.js:49-57` | Advisory only | The model can ignore them. |
-| **`who_made` hard-coded to `i_did`** | `commerce.js:64` | — | **Defect for POD** [likely]: it should be `someone_else` plus `production_partner_ids`, or fixed by hand in Shop Manager. |
-| Taxonomy id | `connectors/etsy.js:152-153` | Throws if unset | `config.js:44-49` does not read `ETSY_TAXONOMY_ID` yet. |
+| `ai_disclosure`, `originality_note` required | `sidecar/tools/commerce.js:90-91` | The draft is rejected if either is empty. | Both are self-assertions. |
+| Disclosure appended to the buyer-visible description | `commerce.js:146-166` | Code | Etsy's AI field is still a **human step**. |
+| ™ © ® rejected in tags | `commerce.js:52, :67` | Validation | Bare brand names pass. There is no trademark or similarity gate yet. |
+| `who_made` and `production_partner_ids` | `commerce.js:9-12, :34-46, :80-89`; sent by `connectors/etsy.js:661, :667-669` | The agent must state `i_did`, `someone_else` or `collective`. Partner ids are validated (positive, unique, at most 10) and sent comma-joined. Every publish receipt tells the operator to check both. | Both are self-assertions: nothing checks that a POD item really names its partner, and the ids must already exist in Shop Manager. |
+| Taxonomy id | `sidecar/config.js:76`; `connectors/etsy.js:653-655, :663` | `ETSY_TAXONOMY_ID` is read at boot (a malformed value refuses to boot) and sent with every draft. `createDraftListing` throws if it is unset. | One taxonomy id serves every listing the station creates. |
+| The research room cannot publish or touch money | `config/station.json:18-28`, `shared/grants.js:5-18`, per-call `checkCall` | Re-checked on every call | The research→production hallway (`station.json:73`) carries web-derived artifacts to the room holding the publish gate. They arrive marked as web-tainted (next row), but they still arrive. |
+| Web taint | `sidecar/artifacts.js:67-94`, `sidecar/loop.js:110-141, :217-218`, `sidecar/prompts.js:122-155` | Marking only. A run that saw web content, or a tainted input, artifact, memory note or task row, stays tainted. Everything it writes and every approval it requests carries `taint: 'web'` with its sources. Tainted inputs reach the model inside `<untrusted_artifact>` blocks, and the approval card says WEB-DERIVED. | **No tool is revoked.** A tainted run keeps its publish and deliver tools, so the operator's approval is the backstop. |
+| Publish = approval + **Etsy DRAFT only** | `commerce.js:197-240`, `sidecar/tools/index.js:188-197`; `CONTRACT.md:23-25` | The run pauses for the operator, and `state=active` is never sent. With no connector, it is a labelled dry run. | The operator sets the disclosures, shipping and returns, and activates the listing. |
+| Deliver = **human hand-off** | `commerce.js:266-298` | A sha256-verified hand-off sheet is written; nothing is sent. | Per-order customization and the client's AI stance |
+| Originality and untrusted-content rules | `sidecar/prompts.js:50-56` | Advisory only | The model can ignore them. |
 
-Separately, `connectors/etsy.js:5` cites discussion #1521 for the shared-secret change; the verified thread is **#1529**.
+The connector's source comment cites the verified shared-secret thread, **#1529** (`connectors/etsy.js:5`).
 
 ---
 
@@ -307,26 +308,27 @@ Separately, `connectors/etsy.js:5` cites discussion #1521 for the shared-secret 
 **Structural mitigations, strongest first.**
 1. **Capability separation.**
    - In Outpost, only the research room has `web_search` and `web_fetch`, and it has no publish, ledger or connector tools. Production holds the publish gate and has no web tools.
-   - Residual risk: injection can **launder through artifacts**, because production reads research's free-text brief [judgment].
+   - Residual risk: injection can **launder through artifacts**, because production reads research's free-text brief [judgment]. Outpost now marks that brief web-tainted and hands it to production inside an `<untrusted_artifact>` block (item 3), which labels the path but does not close it.
 2. **Quarantined reader (dual-LLM / CaMeL).**
    - A tool-less reader emits a strict schema (title, tags, price, review_count, image_urls), and the planner and producers see only those fields.
    - CaMeL solved 77% of AgentDojo tasks with provable security, against 84% undefended ([arXiv 2503.18813](https://arxiv.org/abs/2503.18813)).
    - Outpost lacks this. **Add it before using live research.**
 3. **Taint revocation.**
    - Once untrusted content enters a run, revoke its credentialed requests, shell and connector writes, and journal the taint (`starnet@fbddbf99:sidecar/taint.js:1-30`, `sidecar/index.js:16282-16310`).
-   - Outpost lacks this; its backstop is item 4.
+   - Outpost journals the taint but does not revoke anything. A run that saw web content, or a tainted input, artifact, memory note or task row, stays tainted. Everything it writes and every approval it requests carries `taint: 'web'` with its sources, tainted inputs reach the model inside `<untrusted_artifact>` blocks, and the approval card says WEB-DERIVED (`sidecar/artifacts.js:67-94`, `sidecar/loop.js:110-141`, `sidecar/prompts.js:122-155`).
+   - That is marking, prompt wrapping and an approval warning, not capability revocation: a tainted run keeps every tool its room grants. Its backstop is still item 4.
 4. **Human confirmation** for publish, price changes, refunds, purchases and buyer messages. Outpost gates publish and deliver.
 
 **Credentials.**
-- Keys live only in the sidecar environment (`sidecar/config.js:44-49`, `CONTRACT.md:81`).
-- They are redacted from connector errors (`connectors/etsy.js:88, 106, 136`).
-- Artifacts are specified to be served under a `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox` CSP (`CONTRACT.md:257`).
+- Keys live only in the sidecar environment (`sidecar/config.js:63-81`, `CONTRACT.md:101`).
+- They are redacted from connector errors, rotated tokens included (`connectors/etsy.js:381-396`, used at `:438, :441, :498, :588`).
+- Artifacts are served under a `default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox` CSP, and only after their sha256 matches the log (`sidecar/server.js:44, :273-290`).
 - StarNet's pattern is worth reimplementing: secrets are substituted on the wire and never echoed to the model, and unattended runs refuse unapproved keys (`starnet@fbddbf99:test/web-request.test.js:53-60, 92-104`).
-- **Gap:** Outpost reads a static `ETSY_ACCESS_TOKEN`, which dies in an hour. Before unattended sync is viable, build:
-  - PKCE
-  - encrypted refresh-token storage
-  - single-flight rotation
-  - a `token_expired` UI state
+- **Token lifecycle.** With `ETSY_REFRESH_TOKEN` set, the connector renews the one-hour access token before its known expiry or on a 401 (then retries once). Concurrent refreshes share one request, and Etsy's rotated pair is written atomically at mode 0600 to `<data>/secrets/etsy-token.json` (`connectors/etsy.js:398-469`). The token host is configurable (§4).
+- **Gaps** before unattended sync is comfortable:
+  - an in-app PKCE consent flow (you supply the first tokens);
+  - encryption at rest (the token file is plain JSON protected only by its file mode);
+  - a `token_expired` UI state (a failed refresh shows up only as a failed sync or publish error).
 
 **Subscription-auth fragility.**
 - [fact] Hermes records that OpenAI withdrew the `gpt-5.5` id from an account cohort, and image calls riding that pinned chat model on the Codex OAuth route 404'd while chat kept working (`hermes-agent@357f51c:plugins/image_gen/openai-codex/__init__.py:6-10`, #105398, #107076).
@@ -346,11 +348,11 @@ Separately, `connectors/etsy.js:5` cites discussion #1521 for the shared-secret 
    - Log the runtime model of every run.
 3. **Etsy accounts.** One shop per account and a Seller App per shop with minimal scopes. Set up the Printify production partner before the first listing.
 4. **Etsy plumbing.** PKCE plus refresh, the `keystring:shared_secret` header, a header-driven rate limiter, and taxonomy, shipping-profile and return-policy configuration.
-5. **Close Outpost's gaps.**
-   - `who_made` and `production_partner_ids`.
-   - Read `ETSY_TAXONOMY_ID`.
-   - Rasterize SVG to PNG: Etsy is not documented to accept SVG listing images (*re-verify*), and Printify recommends 4500×5400.
-   - Read payment-ledger fees.
+5. **Close Outpost's remaining gaps.**
+   - Rasterize SVG to PNG: Etsy is not documented to accept SVG listing images (*re-verify*), and Printify recommends 4500×5400. Until then, drafts made from SVG designs reach Etsy without images.
+   - Verify the fee mapping against a live shop. Payment-ledger fees are read, but only for `ledger_type` values on an allow-list built from Etsy's billing vocabulary, because the spec enumerates none. Each sync's `skippedTypes` shows what was left out.
+   - Confirm which token host answers (`ETSY_TOKEN_URL`, §4).
+   - Already closed: `who_made` and `production_partner_ids` are listing inputs, `ETSY_TAXONOMY_ID` is read, and payment-ledger fees are recorded.
 6. **IP gate.** Trademark search, blocklist and similarity check, then human sign-off recorded as an artifact.
 7. **Human Shop Manager pass for each draft.** Set the AI/"How it's made" fields, check the partner, shipping and returns, then activate.
 8. **Fiverr.** Deliver manually from the hand-off sheet, customize each order, and record the client's AI stance.
@@ -358,21 +360,21 @@ Separately, `connectors/etsy.js:5` cites discussion #1521 for the shared-secret 
 
 | Number | Source | Outpost provenance | Built? |
 | --- | --- | --- | --- |
-| Etsy revenue per order | Receipts: items + shipping − discounts, tax excluded (`etsy.js:35-58`) | `connector` | Yes |
-| Etsy refunds | `receipt.refunds[]` (`etsy.js:60-76`) | `connector` | Yes |
-| Etsy fees | Payment-ledger entries | `connector` | **No.** Fees count as 0 until built, so net is overstated; enter them manually. |
+| Etsy revenue per order | Receipts: items + shipping − discounts, tax excluded (`etsy.js:127-159`) | `connector` | Yes |
+| Etsy refunds | `receipt.refunds[]`, capped so a receipt never nets below zero (`etsy.js:162-205`) | `connector` | Yes |
+| Etsy fees | Payment-ledger debits whose `ledger_type` is on an allow-list (`etsy.js:77-92, :243-269`) | `connector` | Yes, but the type mapping is **unverified against a live shop**. Each sync reports the types it skipped. Fee credits (reversals) are skipped, which can only understate net. |
 | POD COGS | Printify order cost | `connector` (planned) / `manual` | No |
 | LLM / image spend | Usage × `pricing.js`; image estimate | Runtime spend, separate from net | Yes |
 | Listing views | Runtime `views` (cumulative) | Daily snapshot | No |
 | Visits / conversion | No API | `manual`, labelled self-reported | — |
 | Fiverr | No API | `manual` (operator-entered) | Yes |
 | itch.io earnings | `/my-games earnings[]` | `connector` | No |
-| Agent-reported figures | — | `agent_claim`: shown, **never counted** (`projector.js:85-87`) | Yes |
+| Agent-reported figures | — | `agent_claim`: shown, **never counted** (`projector.js:101-106`) | Yes |
 
-**Evidence coverage** = verified / (verified + manual) counted revenue, and `null` when there is none (`shared/projector.js:55-59`).
+**Evidence coverage** = verified / (verified + manual) counted revenue, and `null` when there is none (`shared/projector.js:66-71`).
 - The video's mix ($16K Etsy via the connector, $3.4K Fiverr typed in) would read **0.82**.
 - Coverage is revenue-only.
-- Net excludes LLM spend (`projector.js:61-64`), so show "net after runtime spend" next to it.
+- Net excludes LLM spend (`projector.js:80-83`), so show "net after runtime spend" next to it.
 
 10. **Pilot and kill criteria.**
     - Run 30–50 listings and measure per-listing cost from usage.

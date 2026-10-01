@@ -1,6 +1,6 @@
 # Outpost build spec
 
-This is the engineering specification of Outpost as built. It has enough detail to rebuild the system and to change it safely. It describes the final code. Where this document and the code disagree, the code wins, and the disagreement is a bug in one of them. `CONTRACT.md` is the earlier interface contract; the places where the code has moved past it are listed in §19.
+This is the engineering specification of Outpost as built. It has enough detail to rebuild the system and to change it safely. It describes the final code. Where this document and the code disagree, the code wins, and the disagreement is a bug in one of them. `CONTRACT.md` is the interface contract; it has been brought up to date with this code, and §19 records where it used to differ.
 
 Conventions:
 
@@ -77,12 +77,12 @@ The catalog is `EVENT_TYPES` in `shared/events.js`.
 | --- | --- | --- |
 | `station.loaded` | `station` object | `index.js` at boot when the layout differs from `state.station` (system) |
 | `estop` | `engaged` boolean | `dispatcher.setEstop`, only when the value changes (operator) |
-| `agent.status` | `agentId`, `status` ∈ `idle\|thinking\|tool\|awaiting_approval\|handoff\|error\|paused`, `runId?`, `taskId?`, `tool?`, `objectId?`, `detail?` | Loop (agent): `thinking`, `tool` (+tool, objectId), `awaiting_approval` (+tool, objectId, detail), and `idle` at the end of every run. `recover()` (system): `idle` with detail `reset after restart`. `handoff`, `error` and `paused` are reserved: the runtime never emits them, though the UI can draw them. |
+| `agent.status` | `agentId`, `status` ∈ `idle\|thinking\|tool\|awaiting_approval\|handoff\|error\|paused`, `runId?`, `taskId?`, `tool?`, `objectId?`, `detail?` | Loop (agent): `thinking`, `tool` (+tool, objectId, and detail = a 200-char preview of the turn's visible text or progress note, when it has one), `awaiting_approval` (+tool, objectId, detail), and `idle` at the end of every run. `recover()` (system): `idle` with detail `reset after restart`. `handoff`, `error` and `paused` are reserved: the runtime never emits them, though the UI can draw them. |
 | `task.created` | `taskId`, `title`, `brief`, `assignee`, `createdBy`, `parentTaskId?`, `recipeRunId?`, `stage?` number, `dependsOn?` array, `inputs?` array (artifact ids), `kind?` ∈ `work\|review` | `dispatcher.createTask` (actor = `createdBy`: operator, an agent id, system or scheduler) |
-| `task.status` | `taskId`, `status` ∈ `queued\|running\|awaiting_approval\|done\|failed\|cancelled`, `reason?`, `outputs?` array, `summary?` | Dispatcher (system); loop (agent) for `awaiting_approval` and back to `running` around an approval |
+| `task.status` | `taskId`, `status` ∈ `queued\|running\|awaiting_approval\|done\|failed\|cancelled`, `reason?`, `outputs?` array, `summary?` | Dispatcher (system), including `recover()`; loop (agent) for `awaiting_approval` and back to `running` around an approval |
 | `run.started` | `runId`, `taskId`, `agentId`, `provider` (`anthropic`\|`scripted`), `model`, `effort?`, `tools` array (offered tool names) | Loop (agent) |
-| `run.step` | `runId`, `agentId`, `turn`, `stopReason`, `usage` object (raw provider usage), `costUsd`, `text?` (≤ 600-char preview), `costByModel?` object, `servedModel?` | Loop (agent), once per provider response |
-| `run.finished` | `runId`, `agentId`, `taskId`, `outcome` ∈ `completed\|failed\|aborted\|budget_exceeded\|max_turns\|refused\|interrupted`, `turns`, `costUsd`, `summary?`, `error?`, `servedModels?` array, `taint?`, `taintSources?` | Loop (agent), always. `recover()` (system) with `interrupted` |
+| `run.step` | `runId`, `agentId`, `turn`, `stopReason`, `usage` object (raw provider usage), `costUsd`, `text?` (≤ 600-char preview of the turn's visible text, else its latest non-empty thinking text; absent on a refused or `max_tokens` turn), `costByModel?` object, `servedModel?` | Loop (agent), once per provider response, plus one per attempt the provider discarded (`stopReason: 'discarded_invalid_tool_json'`, its reported usage billed, no text) |
+| `run.finished` | `runId`, `agentId`, `taskId`, `outcome` ∈ `completed\|failed\|aborted\|budget_exceeded\|max_turns\|refused\|interrupted`, `turns`, `costUsd`, `summary?` (visible text only; `[refused] …` / `[truncated] …` for a refusal or `max_tokens` stop), `error?`, `servedModels?` array, `taint?`, `taintSources?` | Loop (agent), always. `recover()` (system) with `interrupted` |
 | `tool.called` | `runId`, `callId`, `agentId`, `tool`, `objectId?`, `input` (JSON preview ≤ 600 chars) | Loop (agent) |
 | `tool.result` | `runId`, `callId`, `agentId`, `tool`, `ok`, `output` (preview ≤ 600), `durationMs` | Loop (agent) |
 | `tool.denied` | `runId`, `callId`, `agentId`, `tool`, `reason` | Loop (agent): capability refusal, tool not offered, server tool, operator denial, or budget |
@@ -97,7 +97,7 @@ The catalog is `EVENT_TYPES` in `shared/events.js`.
 | `recipe.started` | `recipeRunId`, `recipe`, `title`, `taskIds` array | `dispatcher.startRecipe`, after the stage tasks are created (operator or scheduler) |
 | `schedule.created` | `scheduleId`, `spec` (normalised), `template` object, `enabled` | `scheduler.addSchedule` (operator) |
 | `schedule.fired` | `scheduleId`, `taskIds` array | Scheduler (scheduler) |
-| `log` | `level` ∈ `info\|warn\|error`, `message` | Loop (unpriced fallback model), dispatcher (daily budget reached, once per UTC day), scheduler (skips, failures, invalid stored specs) |
+| `log` | `level` ∈ `info\|warn\|error`, `message` | Loop (unpriced fallback model; a turn re-issued after unparseable streamed tool input), dispatcher (daily budget reached, once per UTC day), scheduler (skips, failures, invalid stored specs) |
 
 `preview(value, max = 600)` serialises with JSON when needed and truncates as `… [+N chars]`.
 
@@ -220,7 +220,7 @@ The loop is `runAgentLoop(opts)` in `sidecar/loop.js`. It performs one run of on
 
 It returns `{outcome, turns, costUsd, summary, outputs, error?}`.
 
-**Constants.** `MAX_TOKENS = 16000`, `DEFAULT_MAX_TURNS = 12` (used when the agent has no `maxTurns`) and `TOOL_RESULT_MAX_CHARS = 20000`.
+**Constants.** `MIN_TURN_MAX_TOKENS = 16000` (the floor of the per-turn `max_tokens`, below), `DEFAULT_MAX_TURNS = 12` (used when the agent has no `maxTurns`) and `TOOL_RESULT_MAX_CHARS = 20000`.
 
 **Setup.**
 
@@ -243,19 +243,25 @@ It returns `{outcome, turns, costUsd, summary, outputs, error?}`.
 3. Budget check (`budgetBlock`).
    - Station: stop when `spentToday >= dailyBudget`.
    - Run: stop when `runCost > runBudget`. The run cost is `state.runs[runId].costUsd`, which includes `spend.recorded`.
-4. Set status `thinking`, then call `provider.createMessage({model, effort, system, tools, messages: [...messages], maxTokens, signal, agent, task})`.
+4. Set status `thinking`, then call `provider.createMessage({model, effort, system, tools, messages: [...messages], maxTokens, signal, agent, task, onDiscardedAttempt})`.
+   - `maxTokens` (`turnMaxTokens`) is what the remaining budget, `min(runBudget − runCost, dailyBudget − spentToday)`, buys at the model's output rate, floored at 16,000. It is `undefined` when no budget binds or the model is free (scripted), and the provider then uses its own ceiling (§6.1). Thinking counts toward `max_tokens`, so an always-thinking model needs the room, but at a fixed 64K ceiling one turn could overshoot a small run budget by more than the whole budget ($1.28 of Opus 5.5 output against TALLY's $0.50).
+   - `onDiscardedAttempt({attempt, usage, error})` is called by the provider for an attempt it re-issued because the SDK could not parse a streamed tool input (§6.1). The loop emits a `run.step` for it (`turn` = the turn being retried, `stopReason: 'discarded_invalid_tool_json'`, `usage`, `costUsd`, no text) and a `log` warn. The SDK's error text holds the model's partial tool JSON, so it is not logged.
 5. Increment `turns` and push `{role:'assistant', content: msg.content}` **verbatim**. History is append-only and never edited, because thinking blocks and server-tool blocks must survive.
 6. If the content has a `server_tool_use` named `web_search` or `web_fetch`, or a `web_search_tool_result` or `web_fetch_tool_result` block, add the taint source `'web'`.
-7. Price the step with `costOf(model, usage)` and emit `run.step`. When `usage.iterations` contains a `fallback_message`, also include `costByModel` and, when another model answered, `servedModel`. Emit a `log` warn when a fallback model has no price.
-8. Budget check again.
-9. Branch on `stop_reason`:
+7. Work out what the turn says.
+   - A `refusal` or `max_tokens` turn is **cut**: its partial text is discarded and never becomes the summary or the step text.
+   - Otherwise the run's `summary` becomes the turn's visible text (text blocks only, never thinking).
+   - The **note** is the visible text or, when there is none, the latest non-empty `thinking` block's text. On the display-updates models (§6.1) those are the notes the model writes between tool calls.
+8. Price the step with `costOf(model, usage)` and emit `run.step` with `text` = a 600-char preview of the note. When `usage.iterations` contains a `fallback_message`, also include `costByModel` and, when another model answered, `servedModel`. Emit a `log` warn when a fallback model has no price.
+9. Budget check again.
+10. Branch on `stop_reason`:
 
 | `stop_reason` | Action |
 | --- | --- |
-| `end_turn`, `stop_sequence` | Done: outcome `completed`, summary = the final turn's text |
-| `refusal` | Stop with `refused`. The message includes `stop_details.category` and `explanation` when present. |
+| `end_turn`, `stop_sequence` | Done: outcome `completed`, summary = the final turn's visible text |
+| `refusal` | Stop with `refused`. The message includes `stop_details.category` and `explanation` when present, and the summary becomes `[refused] <message>`. |
 | `pause_turn` | `continue`. The server resumes from the trailing server-tool block, and no user message is added. |
-| `max_tokens` | Stop with `failed`. Tools on a truncated turn are never run. |
+| `max_tokens` | Stop with `failed`. Tools on a truncated turn are never run, and the summary becomes `[truncated] response hit max_tokens; …`. |
 | `tool_use` | Run the client calls (below), push **one** user message holding every `tool_result` in order, then continue. A `tool_use` stop with no `tool_use` block fails the run. |
 | anything else | Stop with `failed` (`unexpected stop_reason …`). |
 
@@ -274,14 +280,14 @@ It returns `{outcome, turns, costUsd, summary, outputs, error?}`.
    - If the wait rejects (abort) while the approval is still pending, emit `approval.resolved expired` (note `run stopped while waiting`) and rethrow.
    - After a decision, emit `task.status running`.
    - Any decision other than `granted` gives `tool.denied` with `operator denied: <note‖decision>`, returned as an error result.
-7. Abort check (a halted run never starts a tool). Then emit `agent.status tool` (`tool`, `objectId`) and `tool.called`.
+7. Abort check (a halted run never starts a tool). Then emit `agent.status tool` (`tool`, `objectId`, and `detail` = a 200-char preview of the turn's note when it has one) and `tool.called`.
 8. **Run.** Run `tool.run(input, ctx)` inside `untilAborted(promise, signal)`. On abort the run ends at once: emit `tool.result` with `ok:false` and output `halted while running: …`, then rethrow. A tool exception becomes `{ok:false, output: 'tool error: …'}`, and the run continues.
 9. Collect `res.artifactIds` into the run outputs. Emit `tool.result` (`ok`, an output preview, `durationMs`). Return `{type:'tool_result', tool_use_id, content: truncate(text, 20000)}`, with `is_error: true` when `ok` is false.
 
 **End.**
 
 - Outcomes:
-  - `RunStop` carries its own outcome (`max_turns`, `budget_exceeded`, `refused` or `failed`).
+  - `RunStop` carries its own outcome (`max_turns`, `budget_exceeded`, `refused` or `failed`). A refusal or `max_tokens` stop also carries a label, and the summary becomes `[refused] <message>` or `[truncated] <message>`, so the task card and a reviewing commander never read partial output as a result.
   - An abort gives `aborted` (error `run aborted`).
   - Any other exception gives `failed`, with the error text `<ErrorClass>: <status> <message>` for SDK errors.
 - `finally` always emits `run.finished` (`costUsd` = projected run cost, `servedModels`, taint fields), then `agent.status idle`.
@@ -312,28 +318,44 @@ It returns `{outcome, turns, costUsd, summary, outputs, error?}`.
 
 ### 6.1 Anthropic (`sidecar/providers/anthropic.js`)
 
-`createAnthropicProvider({client = new Anthropic()})` returns `{name: 'anthropic', createMessage}`. The SDK resolves its own credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or a CLI profile). One request per loop turn, non-streaming:
+`createAnthropicProvider({client = new Anthropic(), maxTokens = 64000, eagerInputStreaming, logger = console})` returns `{name: 'anthropic', createMessage}`. The SDK resolves its own credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, or a CLI profile). Each loop turn is **one streamed request**: `client.beta.messages.stream(params, {signal}).finalMessage()`. Above about 21K `max_tokens` the SDK requires streaming, and the provider resolves with the SDK's assembled final message unchanged.
 
 ```js
-client.beta.messages.create({
+params = {
   model,                                              // agent.model, or OUTPOST_MODEL
-  max_tokens: maxTokens,                              // 16000 from the loop
+  max_tokens,                                         // min(maxTokens option (64000), the loop's maxTokens, the model's output limit)
   cache_control: { type: 'ephemeral' },               // top-level automatic caching (moving breakpoint)
   system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
   messages,                                           // append-only history
-  thinking: { type: 'adaptive' },
-  betas: ['server-side-fallback-2026-07-01'],          // FALLBACK_BETA
-  fallbacks: 'default',
-  tools,                                              // only when non-empty; client tools forced to strict: true
-  output_config: { effort },                          // only when the agent has an effort
-}, { signal })
+  thinking: { type: 'adaptive', display: 'updates' }, // per model: or { type: 'adaptive' }, or omitted
+  output_config: { effort },                          // only when the agent's effort is a level the model lists
+  fallbacks: 'default',                               // only for models with a server-side default fallback
+  betas: [FALLBACK_BETA, DISPLAY_UPDATES_BETA],       // only those that apply; omitted when empty
+  tools,                                              // only when non-empty (see below)
+}
 ```
 
+**Per-model request shape (`MODEL_CAPS`).** A request carries only what its model accepts, so no model is sent a parameter it rejects with a 400. Rows are added only after checking the docs for that model.
+
+| Model | `thinking` | `output_config.effort` | `fallbacks: 'default'` + `server-side-fallback-2026-07-01` | `display: 'updates'` + `thinking-display-updates-2026-08-18` | Output limit |
+| --- | --- | --- | --- | --- | ---: |
+| `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1` | adaptive, `display: 'updates'` | low, medium, high, xhigh, max | yes | yes | 128,000 |
+| `claude-opus-5` | adaptive | low … max | yes | no | 128,000 |
+| `claude-opus-4-8`, `claude-sonnet-5` | adaptive | low … max | no | no | 128,000 |
+| `claude-haiku-4-5` | omitted | omitted | no | no | 64,000 |
+| any other model | omitted | omitted | no | no | 16,000 (`UNKNOWN_MODEL_MAX_TOKENS`) |
+
+- **Unknown models** get the minimal request: no thinking, effort, fallbacks, betas or eager tool input, and `max_tokens` 16,000. The provider logs one warning per such model.
+- **Cache stability.** The `thinking` setting is fixed per model, so it is identical on every request of a run. Changing it mid-run would invalidate the messages cache.
+- **Display updates.** On the display-updates models, the notes written between tool calls come back as non-empty `thinking` blocks instead of empty ones. The loop shows the latest as the step text and the `tool` status detail (§5), never as a summary, and sends the blocks nowhere but back to the API verbatim.
 - **Tool definitions** (`toolDefinitions(grants)`) keep grant order.
   - **Client tools:** `{name, description, input_schema, strict: true}`. The `input_schema` has `minLength`, `maxLength`, `minimum`, `maximum`, `minItems` and `maxItems` moved into the field description, because strict tool use rejects them. `validateInput` still enforces them locally.
-  - **Server tools:** `{type:'web_search_20260209', name:'web_search', max_uses:5}` and `{type:'web_fetch_20260209', name:'web_fetch', max_uses:5}`.
+  - **Eager input streaming.** On a known model, client tools also get `eager_input_streaming: true`, so a large input (an SVG, a file body) streams as it is generated. It is on by default only for the first-party endpoint (no `baseURL`, or `https://api.anthropic.com`), because a proxy or gateway may reject the field; the `eagerInputStreaming` option overrides that. The API does not validate eager input, so the loop validates every input before running it and never runs the tools of a `max_tokens` or `refusal` turn.
+  - **Server tools:** `{type:'web_search_20260209', name:'web_search', max_uses:5}` and `{type:'web_fetch_20260209', name:'web_fetch', max_uses:5}`, passed through untouched.
 - **Caching.** The system prompt is byte-stable for a given agent, layout and grants: no timestamps and no ids. Together with the append-only history, that keeps the cache prefix stable across turns and runs.
-- **Errors.** SDK typed errors such as `RateLimitError` and `AuthenticationError` propagate to the loop, which records them as `failed`. There is no retry layer beyond the SDK's own.
+- **Unparseable streamed tool input.** When the SDK cannot parse a streamed tool input as JSON, it rejects `finalMessage()` with a plain `AnthropicError` (no subclass, no `cause`). Only that error re-issues the turn, at most `MAX_JSON_RETRIES = 2` times. That `tool_use` block never completed, so there is no id to answer. Before re-issuing, the provider aborts the stream and calls `onDiscardedAttempt({attempt, usage, error})` with the usage the stream had reported, because the attempt is billed.
+- **Errors.** SDK typed errors such as `RateLimitError` and `AuthenticationError` (all `APIError` subclasses, including aborts and connection errors), wrapped errors that carry a `cause`, and anything after the signal aborted are never re-issued. They propagate to the loop, which records them as `failed`. There is no retry layer beyond the SDK's own and the tool-JSON case above.
+- **Not verified live.** The request shape is tested against fake clients and a local server that speaks the Messages API's SSE format, never against the real API. Whether a refusal fallback from a display-updates model to `claude-opus-5`, `claude-opus-4-8` or `claude-sonnet-5` (none of which list `display: 'updates'`) is accepted is unconfirmed.
 
 ### 6.2 Scripted (`sidecar/providers/scripted.js`, `scripts.js`)
 
@@ -510,13 +532,16 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
 
 1. Every `pending` approval with no live run becomes `approval.resolved expired` (note `the sidecar restarted while this request was pending`).
 2. Every run with `outcome === null` gets `run.finished interrupted` (error `the sidecar stopped during this run`, with the projected turns and cost).
-3. Every `running` or `awaiting_approval` task is re-queued with reason `interrupted by a sidecar restart; re-queued (attempt n of 2)` while its non-aborted runs number fewer than 2. Otherwise it is `failed`.
+3. Every `running` or `awaiting_approval` task is closed from its **last run**. `run.finished` is appended before the dispatcher's `task.status` and fsync is batched, so a crash or power loss can land between the two and leave "run ended, task running".
+   - Last run `completed`: the task becomes `done`, with outputs = the artifacts whose `artifact.created` carries that run's id (a run → artifacts map, built only when needed), the run's summary, and reason `run completed before the restart`. It is never re-run, so a completed run's paid work, and any external action it took, does not happen twice.
+   - Last run `failed`, `budget_exceeded`, `max_turns` or `refused`: the task becomes `failed` with reason `<outcome>: <error>` and the run's summary, as `finish()` would have done. It counts in `tasksFailed`.
+   - Otherwise (`interrupted` by step 2, `aborted`, or no run): the task is re-queued with reason `interrupted by a sidecar restart; re-queued (attempt n of 2)` while its non-aborted runs number fewer than 2. Otherwise it is `failed`.
 4. Every non-idle agent gets `agent.status idle` with detail `reset after restart`.
 5. Reviews a crash skipped are created, in one indexed pass.
 
-`recover()` returns `{approvalsExpired, runsInterrupted, tasksRequeued, tasksFailed, agentsReset, reviewsCreated}`, which the boot banner prints.
+`recover()` returns `{approvalsExpired, runsInterrupted, tasksCompleted, tasksRequeued, tasksFailed, agentsReset, reviewsCreated}`, which the boot banner prints; `tasksCompleted` counts tasks closed as `done` in step 3.
 
-**Known gap.** Recovery does not apply the E-STOP side-effect rule. A task whose run crashed after a *granted* publish or delivery is re-queued like any other while it has attempts left. The re-run must be approved again, so nothing is sent twice without the operator. The new approval card does not say that an Etsy draft may already exist, so check the shop's drafts and any earlier `publish_receipt` before granting it. A crash between the Etsy call and the receipt write leaves no receipt.
+**Known gap.** Recovery does not apply the E-STOP side-effect rule to a run that was cut off part-way. A task whose run crashed after a *granted* publish or delivery, but before the run finished, is re-queued like any other while it has attempts left. The re-run must be approved again, so nothing is sent twice without the operator. The new approval card does not say that an Etsy draft may already exist, so check the shop's drafts and any earlier `publish_receipt` before granting it. A crash between the Etsy call and the receipt write leaves no receipt.
 
 ---
 
@@ -554,7 +579,8 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
 
 - **Specs.**
   - `every <n>m` or `every <n>h` (n ≥ 1).
-  - A 5-field UTC cron, with fields supporting `*`, `*/n`, `a`, `a-b` and comma lists. In day-of-week, 0 and 7 are both Sunday. When both day fields are restricted, either may match.
+  - A 5-field UTC cron, with fields supporting `*`, `*/n`, `a`, `a-b` and comma lists. In day-of-week, 0 and 7 are both Sunday.
+  - Day fields follow Vixie cron and cronie, which test the field's first character: a day field that starts with `*` (including `*/n`) is unrestricted (`domAny` / `dowAny`). Day-of-month and day-of-week must both match unless both are restricted, in which case either may match. So `0 9 */2 * 1-5` fires on odd-numbered weekdays only, and `0 9 1,15 * 1` fires on the 1st, the 15th and every Monday.
 - **Templates.**
   - `{recipe, params}`, validated with `planRecipe`.
   - `{task: {assignee, title, brief}}`, with non-empty strings and a known assignee.
@@ -574,7 +600,7 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
 
 ### 11.1 Etsy (`sidecar/connectors/etsy.js`)
 
-`createEtsyConnector({apiKey, sharedSecret, accessToken, refreshToken, shopId, taxonomyId, shippingProfileId, tokenFile, fetchImpl = fetch, now, log, feeLookbackDays = 90})` returns `{configured, fetchReceipts, fetchLedgerEntries, syncRevenue, sync, syncFees, createDraftListing, uploadListingImage, tokenStatus, redact}`.
+`createEtsyConnector({apiKey, sharedSecret, accessToken, refreshToken, shopId, taxonomyId, shippingProfileId, tokenFile, tokenUrl, fetchImpl = fetch, now, log, feeLookbackDays = 90})` returns `{configured, fetchReceipts, fetchLedgerEntries, syncRevenue, sync, syncFees, createDraftListing, uploadListingImage, tokenStatus, redact}`.
 
 - `configured = apiKey && sharedSecret && shopId && (access token || refresh token)`. An unconfigured connector never touches the network.
 - **Base URL:** `https://openapi.etsy.com/v3/application`.
@@ -591,7 +617,8 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
 **OAuth refresh.**
 
 - **Trigger.** Before a call, refresh when a refresh token exists and either there is no access token or the known expiry is within 60 s. A `401` with a refresh token triggers a refresh and exactly **one** retry.
-- **Request.** `POST https://api.etsy.com/v3/public/oauth/token`, form `grant_type=refresh_token`, `client_id=<keystring>`, `refresh_token`, with the `x-api-key` header.
+- **Request.** `POST <tokenUrl || ETSY_TOKEN_URL>`, form `grant_type=refresh_token`, `client_id=<keystring>`, `refresh_token`, with the `x-api-key` header.
+- **Token URL.** Etsy's sources disagree on the host. The authentication guide uses `https://api.etsy.com/v3/public/oauth/token`, which is the default (`ETSY_TOKEN_URL`). The OpenAPI spec's oauth2 scheme lists `https://openapi.etsy.com/v3/public/oauth/token`. The `ETSY_TOKEN_URL` environment variable (`config.etsy.tokenUrl`) switches it without a code change; config refuses to boot on a value that is not an `https` URL, because the refresh token and shared secret are sent to it. Which host answers has not been checked against a live app.
 - **Single flight.** Concurrent 401s share one refresh. The refresh is deliberately not tied to the run's abort signal, because Etsy rotates the refresh token.
 - **Rotation.** The new pair, and `expires_at` from `expires_in`, are written atomically (temp file, fsync, rename) at mode 0600 to `<data>/secrets/etsy-token.json` (directory 0700). The file holds `{schema:'outpost.etsy-token/1', access_token, refresh_token, expires_at, refreshed_at, seed_sha256}`.
 - **Boot.** A valid file wins over the environment unless `sha256(ETSY_REFRESH_TOKEN)` differs from `seed_sha256`, which means the operator re-authorized. A corrupt or foreign file falls back to the environment without logging its contents.
@@ -677,9 +704,9 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
 <dataDir>/                         OUTPOST_DATA, default <outpost>/data (npm run demo: ./data-demo)
   outpost.lock                     "<pid>\n", created O_EXCL mode 0600; a lock whose pid is dead is taken over
   events.ndjson                    the log: one JSON event per line
-  artifacts/<artifactId>/<file>    content written atomically (tmp + rename); ≤ 8 MB; filename [A-Za-z0-9._-], ≤ 80 chars
+  artifacts/<artifactId>/<file>    content written durably (atomicWrite, below); ≤ 8 MB; filename [A-Za-z0-9._-], ≤ 80 chars
   workspaces/<agentId>/…           private agent files (write_file / read_file / list_files)
-  memory/<roomId>/<key>.md         room memory notes (atomic writes)
+  memory/<roomId>/<key>.md         room memory notes (atomicWrite)
   secrets/etsy-token.json          rotated Etsy OAuth pair, 0600 (dir 0700); never served
   *.tmp-<pid>[-<rand>]             transient temp files from atomic writes
 ```
@@ -687,7 +714,7 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
 **Store** (`sidecar/store.js`).
 
 - **Append** is `validate → JSON.stringify({seq: state.seq+1, ts, type, actor, payload}) → appendFileSync on an open fd`. The parsed copy of the serialised line is applied, so live state equals a replay, and subscribers are notified after the apply.
-- **fsync** runs at most every 250 ms, and on close.
+- **fsync** runs at most every 250 ms, and on close. A power loss can therefore drop up to the last ~250 ms of events, but never leaves a torn middle line. A failing fsync turns the store read-only like a failing write.
 - **Fail-stop.** A failed write is truncated back to the previous size and the store turns read-only. Every later append throws, `health().failed` is set, and `onFailure` subscribers are notified, which makes the server drop SSE streams and answer every POST with 503.
 - **Replay** requires contiguous `seq` from 1, a string `type` and `ts`, and an object `payload`.
   - A malformed **final** line is a torn write: it is dropped, truncated from the file and logged to stderr.
@@ -695,6 +722,15 @@ The review task has title `Review: <parent title>`, a brief stating how many chi
   - A final line without a newline gets one appended.
 - **`events(since, limit)`** slices the in-memory log by index, because `seq = index + 1`.
 - **`logId()`** is `sha256(JSON.stringify(event #1)).slice(0,16)`.
+
+**`atomicWrite(path, data)`** (`sidecar/artifacts.js`) is used for artifacts and room memory. It is synchronous:
+
+1. `mkdirSync(dir, {recursive: true})`, remembering the first directory it created.
+2. Open `<path>.tmp-<pid>`, write the data, `fsync` it, close it.
+3. `rename` it over `path`.
+4. `fsync` the directory, then the parent of each directory step 1 created, up to and including the parent of the first one. Directory fsyncs are skipped on Windows, which cannot open a directory.
+
+`writeArtifact` appends `artifact.created` only after `atomicWrite` returns, so a crash or power loss can lose an artifact's event but never leaves the log pointing at an empty or missing file. `readArtifact` re-checks the logged sha256 on every read. The Etsy token file has its own atomic writer (0600 temp file, fsync, rename).
 
 ---
 
@@ -862,16 +898,16 @@ The starfield and "breathing" idle frames are cosmetic and carry no information.
 | Consent | Approval gate for `publish_listing` and `deliver_order`. The approval card states what granting does (Etsy draft vs dry run; manual hand-off). Denials are final for that call. |
 | Halts | E-STOP aborts runs and in-flight requests that honour the signal, and blocks new starts and schedules. A run halted after a granted external action is not retried. |
 | Prompt injection | Web taint is **marked, not revoked** (§5): tainted runs, artifacts, memory, briefs and approvals are labelled with their sources, and tainted inputs reach the model inside `<untrusted_artifact>`. The research room has web tools but no publish, ledger or connector tools. The human approval gate is the backstop. There is no quarantined reader. |
-| Integrity | One sidecar per data dir (`outpost.lock`). The store fails stop on a write error. Replay refuses a corrupt middle line. |
+| Integrity | One sidecar per data dir (`outpost.lock`). The store fails stop on a write or fsync error. Replay refuses a corrupt middle line. Artifact and memory files are fsynced (file, then directories) before their event is logged. `recover()` never re-runs a task whose last run already finished. |
 | Provider honesty | The UI shows LIVE only after an anthropic `run.step` exists (`anthropicStatus`). `providerLabel` states configuration only. |
 
 ---
 
 ## 17. Testing strategy
 
-`npm test` runs `node --test test/*.test.js`: 310 tests in 19 files at the time of writing, all offline.
+`npm test` runs `node --test test/*.test.js`: 335 tests in 21 files at the time of writing, all offline.
 
-- **No network.** External services are injected: `fetchImpl` for Etsy and OpenAI, a fake `client` for Anthropic.
+- **No network.** External services are injected: `fetchImpl` for Etsy and OpenAI, a fake `client` for Anthropic. `anthropic-stream.test.js` runs the real SDK against a local server that speaks the Messages API's SSE format. Nothing is checked against the live API.
 - **End-to-end.** The e2e suite boots the real sidecar on port 0 with the scripted provider and `OUTPOST_TICK_MS=50`.
 
 | File | Covers |
@@ -879,16 +915,17 @@ The starfield and "breathing" idle frames are cosmetic and carry no information.
 | `store.test.js` | append/seq/ts/persist/apply/notify, validation, replay identity, torn final line, corrupt middle line, fail-stop on short write, `events(since, limit)`, `logId` |
 | `projector.test.js` | claims never counted, externalId and entryId dedup, refunds/fees/net, coverage and its caveats, idempotent replay, spend buckets, feed cap, non-USD tallies, handoff wording, sync wording, `anthropicStatus`, scripted step counts |
 | `capability.test.js` | Default layout valid; per-room grants; first-object mapping; intrinsic handoff; `canHandoff`, `route`, `canDelegate`; `validateStation` |
-| `loop.test.js` | Every `stop_reason` branch; capability denial; invalid input; approval grant, deny and abort; run and daily budgets before every call; tool-spend budgets; turn cap; refusal; SDK error class; verbatim history; parallel results in one message; truncation; unpriced model; fallback billing; scripted labelling |
+| `loop.test.js` | Every `stop_reason` branch; capability denial; invalid input; approval grant, deny and abort; run and daily budgets before every call; tool-spend budgets; per-turn `max_tokens` from the budget; turn cap; refusal and `max_tokens` partial output discarded (`[refused]` / `[truncated]` summaries); progress notes as step text and tool detail, never as a summary; billed discarded attempts; SDK error class; verbatim history; parallel results in one message; truncation; unpriced model; fallback billing; scripted labelling; the real provider on `claude-haiku-4-5` |
 | `taint.test.js` | Taint propagation through runs, artifacts, memory, briefs, task lists, reviews and approvals |
 | `tools.test.js` | Registry shape; strict API schemas; `validateInput`; workspace jail including symlinks; every tool's behaviour and refusals; dry-run vs Etsy publish; approval summary text |
-| `dispatcher.test.js` | One run per agent and the concurrency cap; `after` and dependency propagation; cancel cascade; delegation and handoff lanes; chain cap; exactly one review; approvals; E-STOP re-queue and side-effect rule; hung tools; daily budget hold; model override; `recover()`, including linear-time boot |
-| `scheduler.test.js` | Spec parsing; UTC cron semantics; firing rules; E-STOP hold; restore after restart; no backlog under the budget hold; skip while unfinished |
+| `dispatcher.test.js` | One run per agent and the concurrency cap; `after` and dependency propagation; cancel cascade; delegation and handoff lanes; chain cap; exactly one review; approvals; E-STOP re-queue and side-effect rule; hung tools; daily budget hold; model override; `recover()`, including linear-time boot and closing a task whose last run already finished |
+| `scheduler.test.js` | Spec parsing; UTC cron semantics, including the Vixie/cronie rule for `*`-prefixed day fields; firing rules; E-STOP hold; restore after restart; no backlog under the budget hold; skip while unfinished |
 | `recipes.test.js`, `scripts.test.js`, `prompts.test.js` | Recipe shapes and briefs; every scripted agent and full scripted pipelines; prompt stability, size, lanes, input bounds and tag escaping |
-| `pricing.test.js`, `anthropic-provider.test.js` | Prices and cost formula; fallback splits; request shape (betas, thinking, effort, caching, strict tools, signal); errors propagate |
-| `etsy.test.js`, `etsy-oauth.test.js`, `etsy-wiring.test.js` | Headers; paging; revenue, refund and fee mapping; all-or-nothing sync; fee window; serialised syncs; draft listing form; image upload; refresh, rotation and persistence; single-flight refresh; redaction; config → boot → route wiring |
+| `pricing.test.js`, `anthropic-provider.test.js`, `anthropic-stream.test.js` | Prices and cost formula; fallback splits; per-model request shape from `MODEL_CAPS` (betas, thinking and display, effort, fallbacks, output limit, unknown models); 64K `max_tokens` and the caller's lower cap; caching; strict tools with eager input streaming (off behind a custom base URL); signal; re-issue on unparseable streamed tool input, at most twice; typed errors, aborts and wrapped errors never re-issued; the real SDK stream helper against a local SSE server |
+| `etsy.test.js`, `etsy-oauth.test.js`, `etsy-wiring.test.js` | Headers; paging; revenue, refund and fee mapping; all-or-nothing sync; fee window; serialised syncs; draft listing form; image upload; refresh, rotation and persistence; single-flight refresh; redaction; config → boot → route wiring, including the `ETSY_TOKEN_URL` override |
 | `server.test.js` | Host guard, cross-site GET, POST guards, body limits, static files and CSP, snapshot meta without secrets, SSE replay and batching, stream cap, backpressure, store failure, artifacts, every POST route |
 | `svg.test.js` | Sanitizer accepts real designs and the SVG vocabulary. Malicious cases also appear in tools and scripts tests. |
+| `artifacts.test.js` | The order of fs calls in `atomicWrite` (temp-file fsync, rename, directory fsyncs) before `artifact.created`; in-place overwrite leaves no temp file |
 | `e2e-recipes.test.js` | Over HTTP and SSE: `pod_listing` with a granted dry-run publish; `thumbnail_order` with a denied delivery; restart mid-approval; `station.loaded` only on change; invalid layout refused; second sidecar refused |
 
 **UI smoke** (`scripts/ui-smoke.mjs <baseUrl> <outDir>`).
@@ -929,19 +966,20 @@ The video and its code-level ancestor are analysed in `docs/HOW_THE_VIDEO_WORKS.
 
 ## 19. Code vs older documents
 
-`CONTRACT.md` predates parts of the final code. The code is authoritative.
+`CONTRACT.md` predates parts of the final code and has since been brought up to date with it. The code is authoritative. These are the places where older copies of the contract differ:
 
-| Topic | Contract says | Code does |
+| Topic | Older contract said | Code does (and the contract now says) |
 | --- | --- | --- |
-| Etsy config | `etsy: {apiKey, sharedSecret, accessToken, shopId}`; `configured` = apiKey + accessToken + shopId | It also reads `refreshToken`, `taxonomyId` and `shippingProfileId`. `configured` also requires `sharedSecret` and accepts a refresh token instead of an access token. |
+| Etsy config | `etsy: {apiKey, sharedSecret, accessToken, shopId}`; `configured` = apiKey + accessToken + shopId | It also reads `refreshToken`, `taxonomyId`, `shippingProfileId` and `tokenUrl` (`ETSY_TOKEN_URL`). `configured` also requires `sharedSecret` and accepts a refresh token instead of an access token. |
+| Etsy connector | `{configured, fetchReceipts, syncRevenue, createDraftListing}`; fees only "if fetched" | Adds `fetchLedgerEntries`, `syncFees`, `uploadListingImage`, `tokenStatus`, `redact`, OAuth refresh with a persisted token file, and payment-ledger fees |
 | `createServer` | `({store, dispatcher, scheduler, config, meta})` | Also takes `connectors` |
 | Scripted `tool_use` ids | `toolu_scripted_<turn>_<i>` | `toolu_scripted_<run>_<turn>_<i>` |
 | `create_listing_draft` | `who_made` fixed to `i_did`; price `> 0.20` | `who_made` ∈ `i_did\|someone_else\|collective` plus `production_partner_ids`; price ≥ 0.20 |
 | Package manifest | Files carry `artifactId, path, sha256, bytes` | `artifact_id, kind, title, path, mime, sha256, bytes` |
-| Anthropic request | No top-level `cache_control` | Adds top-level `cache_control: {type:'ephemeral'}` |
+| Anthropic request | `client.beta.messages.create(...)`, `max_tokens: 16000`, adaptive thinking, effort and `fallbacks: 'default'` for every model, no top-level `cache_control` | One streamed request per turn; `max_tokens` up to 64,000, capped by the loop to what the budget buys (floor 16,000); thinking, effort, fallbacks and betas per model (`MODEL_CAPS`), with display updates where supported; eager input streaming; top-level `cache_control` |
+| Web taint | Not specified | `ctx.taint`, the `taint`/`taintSources` fields and `<untrusted_artifact>` wrapping (§5, §7) |
+| `recover()` | Running / awaiting_approval tasks → `queued` or `failed` | Closed from the task's last run (`done` or `failed`) first; only an interrupted, aborted or missing run is re-queued or failed (§9) |
 | `connector.sync` payload | `{connector, ok, fetched, newEntries, error?}` | Also `receipts` and `fees` objects (additive) |
-
----
 
 ## 20. Extending
 

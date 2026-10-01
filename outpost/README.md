@@ -53,7 +53,17 @@ Try **pod_listing** from the Bridge terminal. Research, design and listing copy 
 ANTHROPIC_API_KEY=sk-ant-... npm start
 ```
 
-With `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set, the provider is `anthropic` and every agent calls the Messages API with the model in its layout entry. Every turn is priced and counted against budgets. The badge reads **ANTHROPIC API · key set, not yet verified** until an anthropic run records a `run.step`. After that it reads **LIVE · Anthropic API**. If the newest decisive run failed authentication, it reads **ANTHROPIC API · LAST CALL FAILED: AUTH**. Data goes to `outpost/data` unless `OUTPOST_DATA` says otherwise. Only one sidecar may use a data directory at a time (`outpost.lock`).
+With `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set, the provider is `anthropic` and every agent calls the Messages API with the model in its layout entry. Every turn is priced and counted against budgets.
+
+- **One streamed request per turn.** The provider streams each turn (`client.beta.messages.stream(…).finalMessage()`) with `max_tokens` up to 64,000. The loop lowers that to what the remaining run or daily budget buys, never below 16,000.
+- **Shaped per model.** `MODEL_CAPS` in `sidecar/providers/anthropic.js` decides what each request carries, so no model is sent a parameter it rejects.
+  - Opus 5.5, Sonnet 5.5 and Fable 5.1 get adaptive thinking with display updates, the agent's effort level, and the server-side refusal fallback.
+  - Opus 5 gets the same minus display updates. Opus 4.8 and Sonnet 5 get thinking and effort only. Haiku 4.5 gets none of them.
+- **Display updates.** On the display-updates models, the notes an agent writes between tool calls arrive as thinking text. When a turn has no visible text, the latest note becomes that step's text in the feed and the agent's status detail while its tools run. Notes are never used as a run summary.
+- **Tool inputs stream as they are generated** (eager input streaming, first-party endpoint only). Every input is still validated against its schema before the tool runs. A turn whose streamed tool input the SDK cannot parse is re-issued at most twice, and the discarded attempt is billed as its own step.
+- **Refused or truncated output is discarded.** A refused or `max_tokens` turn never runs its tools, and the run's summary says `[refused] …` or `[truncated] …` instead of the partial text.
+
+The badge reads **ANTHROPIC API · key set, not yet verified** until an anthropic run records a `run.step`. After that it reads **LIVE · Anthropic API**. If the newest decisive run failed authentication, it reads **ANTHROPIC API · LAST CALL FAILED: AUTH**. Data goes to `outpost/data` unless `OUTPOST_DATA` says otherwise. Only one sidecar may use a data directory at a time (`outpost.lock`).
 
 ### Environment
 
@@ -61,7 +71,7 @@ With `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set, the provider is `anthrop
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN` | unset | Either one selects the `anthropic` provider. The SDK reads the credential itself. |
 | `OUTPOST_PROVIDER` | derived | `anthropic` or `scripted`. Overrides the choice above; any other value refuses to boot. |
-| `OUTPOST_MODEL` | unset | Every agent runs on this model id instead of its layout model (anthropic only). The id must have a row in `sidecar/pricing.js`, or runs fail with `no price for model …` before the first call. |
+| `OUTPOST_MODEL` | unset | Every agent runs on this model id instead of its layout model (anthropic only). The id must have a row in `sidecar/pricing.js`, or runs fail with `no price for model …` before the first call. An id missing from `MODEL_CAPS` gets a minimal request (no thinking, effort, fallback, betas or eager tool input; `max_tokens` 16,000) and one warning. |
 | `OUTPOST_DATA` | `<outpost>/data` | Data directory: event log, artifacts, workspaces, memory, secrets. |
 | `OUTPOST_STATION` | `<outpost>/config/station.json` | Station layout. It is validated at boot, and an invalid layout refuses to start. |
 | `HOST` | `127.0.0.1` | Bind address. See [Security model](#security-model) before changing it. |
@@ -78,6 +88,7 @@ With `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` set, the provider is `anthrop
 | `ETSY_REFRESH_TOKEN` | unset | Lets the connector renew the access token. The rotated pair is saved to `<data>/secrets/etsy-token.json` (mode 0600) and wins over the environment on the next boot, unless `ETSY_REFRESH_TOKEN` itself changed. |
 | `ETSY_TAXONOMY_ID` | unset | Positive integer, required to create an Etsy draft listing. A malformed value refuses to boot. |
 | `ETSY_SHIPPING_PROFILE_ID` | unset | Positive integer, sent with draft listings when set. A malformed value refuses to boot. |
+| `ETSY_TOKEN_URL` | `https://api.etsy.com/v3/public/oauth/token` | OAuth token endpoint for refreshes. Etsy's authentication guide uses the default; its OpenAPI spec lists `https://openapi.etsy.com/v3/public/oauth/token`. Must be an `https` URL, or boot is refused. |
 
 The Etsy connector counts as configured when it has the keystring, shared secret and shop id, plus either an access token or a refresh token. Outpost has no in-app OAuth consent flow, so you obtain the tokens from your own Etsy app (see [Limitations](#limitations-and-roadmap)).
 
@@ -168,6 +179,8 @@ Station budgets: **$15 per UTC day** (`budgets.stationDailyUsd`) and **at most 3
 
 Recipes are multi-stage workflows (`sidecar/recipes.js`). Launch one from the Bridge terminal, with `POST /api/recipes/:name`, or on a schedule (`POST /api/schedules`). A stage starts when the stages it depends on are `done`, and it receives their outputs as inputs. Every brief carries the originality rule and names the artifact the stage must produce.
 
+A schedule spec is `every <n>m`, `every <n>h` or a 5-field cron in UTC. Cron follows Vixie cron and cronie: a day field that starts with `*` (including `*/n`) is unrestricted, so the two day fields must both match unless both are restricted, in which case either may. A firing is skipped while E-STOP is engaged, while the previous firing still has unfinished tasks, or while the daily budget is spent.
+
 | Recipe | Default params | Stages |
 | --- | --- | --- |
 | `pod_listing` | `niche: "botanical typography sweatshirts"`, `audience: "women 25-40 who garden"` | NOVA researches the niche (markdown brief) → PIXEL designs an original SVG → QUILL writes the listing draft (after both) → ORION reviews and **delegates publication** to QUILL, which pauses for approval. When the publish task finishes, ORION gets a review task. |
@@ -216,6 +229,7 @@ Params must be single-line strings of 1–200 characters, and only the recipe's 
 
 - Each agent has a run budget, and the station has a $15 daily budget (UTC day).
 - Before every provider call and every tool call, the loop stops a run when station spend today is at or above the daily cap, or when the run's cost is above its budget.
+- Each turn's `max_tokens` is capped at what the remaining run or daily budget buys at the model's output rate, never below 16,000 tokens.
 - A run can therefore exceed its budget by at most the cost of its last turn.
 - A spent daily budget holds queued work until the next UTC day; it does not fail it.
 - `generate_image` refuses up front when its estimate exceeds what is left.
@@ -288,12 +302,12 @@ For the business side, see the economics doc. It covers what the video's Etsy st
 | `sidecar/recipes.js` | `RECIPES`, `planRecipe` |
 | `sidecar/prompts.js` | `systemPrompt` (byte-stable, cached), `taskMessage` |
 | `sidecar/pricing.js` | `PRICES`, `costOf`, `costByModel` |
-| `sidecar/providers/` | `anthropic.js` (Messages API via the SDK), `scripted.js` + `scripts.js` (offline demo) |
+| `sidecar/providers/` | `anthropic.js` (streamed Messages API via the SDK; per-model request shape in `MODEL_CAPS`), `scripted.js` + `scripts.js` (offline demo) |
 | `sidecar/tools/` | Tool registry (`index.js`) and implementations: files, memory, design, commerce, ledger, coordination |
 | `sidecar/connectors/etsy.js` | Etsy Open API v3: receipts, refunds, fees, draft listings, image upload, OAuth refresh |
 | `sidecar/images.js` | OpenAI image provider (optional) |
 | `sidecar/svg.js` | SVG sanitizer (allow-list) |
-| `sidecar/artifacts.js` | Artifact files (atomic writes, sha256 recorded and re-verified on read), web-taint record |
+| `sidecar/artifacts.js` | Artifact files (durable atomic writes: fsync, rename, directory fsync; sha256 recorded and re-verified on read), web-taint record |
 | `sidecar/server.js` | HTTP API, SSE, static files, security guards |
 | `frontend/` | `index.html`, `main.js`, `app.js` (sync), `world.js` (canvas), `sprites.js` / `pixelfont.js` (procedural art), `ui.js` (terminals), `style.css` |
 | `scripts/ui-smoke.mjs` | Playwright smoke test |
@@ -311,8 +325,8 @@ For the business side, see the economics doc. It covers what the video's Etsy st
 npm test                                   # node --test test/*.test.js
 ```
 
-- **Offline.** The suite runs offline in a few seconds: 310 tests across 19 files at the time of writing.
-  - Etsy, OpenAI and Anthropic are never called. Each has an injected `fetchImpl` or client.
+- **Offline.** The suite runs offline in a few seconds: 335 tests across 21 files at the time of writing.
+  - Etsy, OpenAI and Anthropic are never called. Each has an injected `fetchImpl` or client. The streaming tests run the real SDK against a local server that speaks the Messages API's SSE format. Nothing has been checked against the live Anthropic API by this suite.
   - The end-to-end tests boot the real sidecar on port 0 with the scripted provider. They drive whole recipes through the HTTP API and the SSE stream: approvals granted and denied, a restart mid-approval, and a second sidecar refused on the same data dir.
 - **UI smoke** (Playwright, desktop 1440×900 and phone 390×844). It fails on any console error, page error or horizontal page scroll, then prints `PASS` or `FAIL`:
 
@@ -361,6 +375,8 @@ npm test                                   # node --test test/*.test.js
 - **Integrity.**
   - One sidecar per data dir, enforced by `outpost.lock`.
   - A failed log write turns the store read-only (POSTs answer 503) instead of letting state run ahead of the disk.
+  - The event log is fsynced at most every 250 ms and on shutdown. Artifact and memory files are written to a temp file, fsynced, renamed and their directory fsynced before `artifact.created` is logged, so the log never points at bytes that are not on disk.
+  - On boot, `recover()` expires pending approvals and marks unfinished runs `interrupted`. A task left `running` is closed from its last run: a completed run makes it `done` and a failed one `failed`, and neither is re-run. An interrupted task is re-queued (at most 2 attempts; E-STOP halts don't count) or failed.
 
 ---
 
@@ -371,7 +387,9 @@ These are honest gaps, not a sales list.
 - **No computer use or browser automation.** Agents act only through the tools above. Nothing drives Etsy, Fiverr or any other website.
 - **No Printify (or other print-on-demand) connector yet.** Cost of goods is not fetched. Enter it as a `manual` cost.
 - **No rasterizer.** Designs are SVG unless an image provider is configured. Etsy does not accept SVG listing images, so drafts made from SVG designs reach Etsy without images.
-- **No in-app Etsy OAuth (PKCE) flow.** You supply the tokens. With a refresh token, renewal is automatic.
+- **No in-app Etsy OAuth (PKCE) flow.** You supply the tokens. With a refresh token, renewal is automatic. The rotated pair is stored unencrypted (mode 0600). Etsy's documents disagree on the token host; `ETSY_TOKEN_URL` switches it, and which one answers has not been checked against a live app.
+- **The live request shape is tested only against fakes.** No test here calls the real Anthropic API. In particular, whether a refusal fallback from a display-updates model to Opus 5, Opus 4.8 or Sonnet 5 accepts `display: 'updates'` is unconfirmed.
+- **A crash mid-run after a granted publish re-queues the task.** `recover()` closes a task whose last run finished, but a run cut off part-way is re-run while it has attempts left. The re-run needs a fresh approval, and its card does not say that an Etsy draft may already exist, so check the shop's drafts and any earlier receipt before granting it.
 - **Fee coverage.** Etsy fees come only from payment-account ledger types on a conservative allow-list. Each sync reports the types it skipped, and the list must be re-verified against a real shop's ledger. Shop visits and conversion are not available from Etsy's API, so Outpost never shows them.
 - **USD only for counted money.** Nothing converts currencies, and manual entries must be USD.
 - **Single user, localhost.** There are no accounts and no authentication.

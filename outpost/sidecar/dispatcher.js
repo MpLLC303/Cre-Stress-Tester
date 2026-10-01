@@ -450,14 +450,14 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
   /**
    * Boot-time repair after a crash or restart: nothing in the log may claim to be in flight
    * when no run is. Call before start().
-   * @returns {{approvalsExpired:number, runsInterrupted:number, tasksRequeued:number, tasksFailed:number, agentsReset:number, reviewsCreated:number}}
+   * @returns {{approvalsExpired:number, runsInterrupted:number, tasksCompleted:number, tasksRequeued:number, tasksFailed:number, agentsReset:number, reviewsCreated:number}}
    */
   function recover() {
     const liveRuns = new Set([...active.values()].map((e) => e.runId));
     const liveTasks = new Set([...active.values()].map((e) => e.taskId));
     const reviewCount = () => state.taskOrder.filter((id) => state.tasks[id].kind === 'review').length;
     const reviewsBefore = reviewCount();
-    const summary = { approvalsExpired: 0, runsInterrupted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 };
+    const summary = { approvalsExpired: 0, runsInterrupted: 0, tasksCompleted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 };
 
     for (const ap of Object.values(state.approvals)) {
       if (ap.status !== 'pending' || liveRuns.has(ap.runId)) continue;
@@ -477,9 +477,37 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
       }, 'system');
       summary.runsInterrupted += 1;
     }
+    // run.finished is appended before the dispatcher's task.status, and fsync is batched, so a
+    // crash or power loss between the two leaves "run ended, task running". Close such a task the
+    // way finish() would have instead of re-running it: a completed run's paid work, and any
+    // external action it took (a granted publish), must not happen twice.
+    let outputsByRun = null;
+    const runOutputs = (runId) => {
+      if (!outputsByRun) {
+        outputsByRun = new Map();
+        for (const art of Object.values(state.artifacts)) {
+          if (!art.runId) continue;
+          let list = outputsByRun.get(art.runId);
+          if (!list) outputsByRun.set(art.runId, (list = []));
+          list.push(art.artifactId);
+        }
+      }
+      return outputsByRun.get(runId) || [];
+    };
     for (const taskId of state.taskOrder) {
       const task = state.tasks[taskId];
       if ((task.status !== 'running' && task.status !== 'awaiting_approval') || liveTasks.has(taskId)) continue;
+      const last = state.runs[task.runIds.at(-1)];
+      if (last?.outcome === 'completed') {
+        setTaskStatus(taskId, 'done', { outputs: runOutputs(last.runId), summary: last.summary || undefined, reason: 'run completed before the restart' });
+        summary.tasksCompleted += 1;
+        continue;
+      }
+      if (last && ['failed', 'budget_exceeded', 'max_turns', 'refused'].includes(last.outcome)) {
+        setTaskStatus(taskId, 'failed', { reason: `${last.outcome}: ${last.error || 'no detail'}`, summary: last.summary || undefined });
+        summary.tasksFailed += 1;
+        continue;
+      }
       requeueOrFail(task, 'interrupted by a sidecar restart');
       if (task.status === 'queued') summary.tasksRequeued += 1;
       else summary.tasksFailed += 1;

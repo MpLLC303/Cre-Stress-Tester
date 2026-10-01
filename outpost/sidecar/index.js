@@ -199,6 +199,7 @@ function banner({ config, meta, url, recovered, store, connectors }) {
   const labels = {
     approvalsExpired: 'approvals expired',
     runsInterrupted: 'runs marked interrupted',
+    tasksCompleted: 'tasks closed from runs that finished before the restart',
     tasksRequeued: 'tasks re-queued',
     tasksFailed: 'tasks failed (out of attempts)',
     agentsReset: 'agents reset to idle',

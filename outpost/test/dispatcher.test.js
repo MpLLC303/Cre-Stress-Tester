@@ -515,7 +515,7 @@ test('recover() expires approvals, interrupts runs, re-queues or fails tasks, an
 
   const { store: s, dispatcher } = setup({ dataDir });
   const summary = dispatcher.recover();
-  assert.deepEqual(summary, { approvalsExpired: 1, runsInterrupted: 2, tasksRequeued: 1, tasksFailed: 1, agentsReset: 2, reviewsCreated: 0 });
+  assert.deepEqual(summary, { approvalsExpired: 1, runsInterrupted: 2, tasksCompleted: 0, tasksRequeued: 1, tasksFailed: 1, agentsReset: 2, reviewsCreated: 0 });
   assert.equal(s.state.approvals.apr_1.status, 'expired');
   assert.deepEqual([s.state.runs.run_1.outcome, s.state.runs.run_2b.outcome], ['interrupted', 'interrupted']);
   assert.equal(s.state.tasks.task_1.status, 'queued');
@@ -523,7 +523,49 @@ test('recover() expires approvals, interrupts runs, re-queues or fails tasks, an
   assert.equal(s.state.tasks.task_2.status, 'failed');
   assert.match(s.state.tasks.task_2.reason, /gave up after 2 attempts/);
   assert.deepEqual([s.state.agents.nova.status, s.state.agents.quill.status], ['idle', 'idle']);
-  assert.deepEqual(dispatcher.recover(), { approvalsExpired: 0, runsInterrupted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 });
+  assert.deepEqual(dispatcher.recover(), { approvalsExpired: 0, runsInterrupted: 0, tasksCompleted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 });
+});
+
+test('recover() closes a task whose last run already finished instead of re-running it (RT-9)', async () => {
+  // A power loss between run.finished (synced) and the dispatcher's task.status (not yet synced).
+  const { dataDir, store } = setup();
+  const a = (type, payload, actor) => store.append(type, payload, actor);
+  a('task.created', { taskId: 'task_pub', title: 'Publish', brief: '', assignee: 'quill', createdBy: 'orion' });
+  a('task.status', { taskId: 'task_pub', status: 'running' });
+  a('run.started', { runId: 'run_0', taskId: 'task_pub', agentId: 'quill', provider: 'scripted', model: 'scripted', tools: [] }, 'quill');
+  a('run.finished', { runId: 'run_0', agentId: 'quill', taskId: 'task_pub', outcome: 'interrupted', turns: 1, costUsd: 0 });
+  a('run.started', { runId: 'run_1', taskId: 'task_pub', agentId: 'quill', provider: 'scripted', model: 'scripted', tools: [] }, 'quill');
+  const stale = writeArtifact({ dataDir, store }, { agentId: 'quill', taskId: 'task_pub', runId: 'run_0', kind: 'text', title: 'old', content: 'old' });
+  a('approval.requested', { approvalId: 'apr_1', runId: 'run_1', agentId: 'quill', taskId: 'task_pub', tool: 'publish_listing', summary: 'Publish', input: '{}' }, 'quill');
+  a('approval.resolved', { approvalId: 'apr_1', decision: 'granted' }, 'operator');
+  const receipt = writeArtifact({ dataDir, store }, { agentId: 'quill', taskId: 'task_pub', runId: 'run_1', kind: 'publish_receipt', title: 'receipt', content: '{"listingId":42}' });
+  a('run.finished', { runId: 'run_1', agentId: 'quill', taskId: 'task_pub', outcome: 'completed', turns: 3, costUsd: 0, summary: 'Created Etsy draft 42' }, 'quill');
+  a('agent.status', { agentId: 'quill', status: 'idle' }, 'quill');
+  a('task.created', { taskId: 'task_cost', title: 'Costly', brief: '', assignee: 'nova', createdBy: 'operator' });
+  a('task.status', { taskId: 'task_cost', status: 'running' });
+  a('run.started', { runId: 'run_2', taskId: 'task_cost', agentId: 'nova', provider: 'scripted', model: 'scripted', tools: [] }, 'nova');
+  a('run.finished', { runId: 'run_2', agentId: 'nova', taskId: 'task_cost', outcome: 'budget_exceeded', turns: 9, costUsd: 0, error: 'run budget $1 spent' }, 'nova');
+  store.close();
+
+  const calls = [];
+  const provider = { name: 'test', model: 'scripted', createMessage: async (req) => { calls.push(req); return endTurn('again'); } };
+  const { store: s, dispatcher } = setup({ dataDir, provider });
+  const summary = dispatcher.recover();
+  assert.deepEqual(summary, { approvalsExpired: 0, runsInterrupted: 0, tasksCompleted: 1, tasksRequeued: 0, tasksFailed: 1, agentsReset: 0, reviewsCreated: 0 });
+  const t = s.state.tasks.task_pub;
+  assert.equal(t.status, 'done');
+  assert.deepEqual(t.outputs, [receipt.artifactId], 'outputs are the artifacts of the completed run only');
+  assert.ok(!t.outputs.includes(stale.artifactId));
+  assert.equal(t.summary, 'Created Etsy draft 42');
+  assert.equal(s.state.tasks.task_cost.status, 'failed', 'a run that ended over budget is not paid for twice');
+  assert.match(s.state.tasks.task_cost.reason, /^budget_exceeded: run budget \$1 spent/);
+
+  dispatcher.start();
+  await new Promise((r) => setTimeout(r, 50));
+  dispatcher.stop();
+  assert.equal(calls.length, 0, 'nothing is re-run');
+  assert.equal(Object.values(s.state.approvals).filter((ap) => ap.status === 'pending').length, 0, 'no second publish approval');
+  assert.deepEqual(dispatcher.recover(), { approvalsExpired: 0, runsInterrupted: 0, tasksCompleted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 });
 });
 
 // ---- E-STOP and side effects (RT-3, RT-6) -------------------------------------------------------

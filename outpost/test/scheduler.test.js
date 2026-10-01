@@ -71,6 +71,20 @@ test('cronMatches works in UTC and ORs day-of-month with day-of-week when both a
   assert.equal(cronMatches(weekdays, at('2026-10-03T12:00:00Z')), false); // Saturday
 });
 
+test('a day field starting with * (including */n) is unrestricted, as in Vixie cron and cronie (RT-10)', () => {
+  const daysIn = (spec) => {
+    const c = parseSpec(spec);
+    const days = [];
+    for (let d = 1; d <= 31; d += 1) if (cronMatches(c, Date.UTC(2026, 9, d, 9, 0))) days.push(d);
+    return days;
+  };
+  const oddWeekdays = parseSpec('0 9 */2 * 1-5');
+  assert.deepEqual([oddWeekdays.domAny, oddWeekdays.dowAny], [true, false]);
+  assert.deepEqual(daysIn('0 9 */2 * 1-5'), [1, 5, 7, 9, 13, 15, 19, 21, 23, 27, 29], 'odd days AND weekdays (cronie)');
+  assert.deepEqual(daysIn('0 9 13 * */2'), [13], 'the 13th, a Tuesday (day 2), AND an even weekday');
+  assert.deepEqual(daysIn('0 9 1,15 * 1'), [1, 5, 12, 15, 19, 26], 'both restricted: the 1st, the 15th OR any Monday');
+});
+
 test('addSchedule validates and emits schedule.created', () => {
   const { store, scheduler } = setup();
   const id = scheduler.addSchedule('every 30m', { recipe: 'ledger_report', params: {} });

@@ -2,7 +2,9 @@
 // so a restart restores them from state; each firing is logged as schedule.fired.
 //
 // Specs: `every <n>m` / `every <n>h`, or 5-field cron (minute hour day-of-month month
-// day-of-week, UTC) with `*`, `*/n`, `a`, `a-b` and comma lists. Cron schedules miss runs that
+// day-of-week, UTC) with `*`, `*/n`, `a`, `a-b` and comma lists. As in Vixie cron and cronie, a
+// day field that starts with `*` (including `*/n`) counts as unrestricted, so day-of-month and
+// day-of-week are ANDed unless both are restricted, then either may match. Cron schedules miss runs that
 // fall while the sidecar is down; they do not catch up. A firing is skipped (logged once per
 // reason) while E-STOP is engaged, while the schedule's previous firing still has unfinished tasks,
 // or while the station daily budget holds queued work, so no backlog piles up behind a stall.
@@ -58,10 +60,14 @@ export function parseSpec(spec) {
   const parts = text.split(' ');
   if (parts.length !== 5) throw new Error(`schedule spec must be "every <n>m|h" or a 5-field cron expression, got "${text}"`);
   const [minute, hour, dom, month, dow] = parts.map((p, i) => parseField(p, CRON_FIELDS[i]));
-  return { kind: 'cron', spec: text, minute, hour, dom, month, dow, domAny: parts[2] === '*', dowAny: parts[4] === '*' };
+  // Vixie cron / cronie test the field's first character (DOM_STAR / DOW_STAR), so `*/2` is unrestricted.
+  return { kind: 'cron', spec: text, minute, hour, dom, month, dow, domAny: parts[2].startsWith('*'), dowAny: parts[4].startsWith('*') };
 }
 
-/** Does a cron spec match the UTC minute containing `ms`? Standard rule: when both day fields are restricted, either may match. */
+/**
+ * Does a cron spec match the UTC minute containing `ms`? Vixie cron / cronie rule: when both day
+ * fields are restricted (neither starts with `*`), either may match; otherwise both must.
+ */
 export function cronMatches(cron, ms) {
   const d = new Date(ms);
   if (!cron.minute.has(d.getUTCMinutes()) || !cron.hour.has(d.getUTCHours()) || !cron.month.has(d.getUTCMonth() + 1)) return false;

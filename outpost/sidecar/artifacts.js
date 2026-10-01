@@ -3,8 +3,8 @@
 // event. The UI can only show work that exists on disk with a matching sha256.
 
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
-import { join, basename, dirname } from 'node:path';
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { join, basename, dirname, resolve } from 'node:path';
 import { WEB_TAINT } from '../shared/events.js';
 import { newId } from './ids.js';
 
@@ -25,12 +25,43 @@ function safeFilename(name, fallback) {
   return cleaned.slice(0, 80) || fallback;
 }
 
-/** Atomic write: temp file then rename, so a crash never leaves a torn artifact. */
+/** Flush a directory's entries (a rename or a new child) to disk. Windows cannot open directories. */
+function fsyncDir(dir) {
+  if (process.platform === 'win32') return;
+  const fd = openSync(dir, 'r');
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Durable atomic write: temp file, fsync, rename, then fsync the directory (and the parents of any
+ * directory this call created), so neither a crash nor a power loss leaves a torn or missing file
+ * once this returns. writeArtifact logs artifact.created only after it returns, so the event log
+ * never points at bytes that are not on disk.
+ */
 export function atomicWrite(path, data) {
-  mkdirSync(dirname(path), { recursive: true });
+  const dir = resolve(dirname(path));
+  const created = mkdirSync(dir, { recursive: true }); // first directory it made, or undefined
   const tmp = `${path}.tmp-${process.pid}`;
-  writeFileSync(tmp, data);
+  const fd = openSync(tmp, 'w', 0o644);
+  try {
+    writeFileSync(fd, data);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
   renameSync(tmp, path);
+  fsyncDir(dir);
+  if (created) {
+    const top = dirname(resolve(created));
+    for (let d = dirname(dir); ; d = dirname(d)) {
+      fsyncDir(d);
+      if (d === top || d === dirname(d)) break;
+    }
+  }
 }
 
 // ---- web taint ---------------------------------------------------------------------------

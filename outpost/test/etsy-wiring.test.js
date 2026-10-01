@@ -26,9 +26,10 @@ test('config reads the Etsy taxonomy id (a number), shipping profile id and refr
   const { etsy } = loadConfig({ ...ENV, OUTPOST_DATA: tmp() });
   assert.deepEqual(etsy, {
     apiKey: 'KEY-SECRET', sharedSecret: 'SHARED-SECRET', accessToken: 'ACCESS-env', refreshToken: 'REFRESH-env',
-    shopId: '777', taxonomyId: 2078, shippingProfileId: 998877,
+    shopId: '777', taxonomyId: 2078, shippingProfileId: 998877, tokenUrl: null,
   });
   const bare = loadConfig({ OUTPOST_PROVIDER: 'scripted' }).etsy;
+  assert.equal(bare.tokenUrl, null, 'unset: the connector uses ETSY_TOKEN_URL');
   assert.equal(bare.taxonomyId, null);
   assert.equal(bare.shippingProfileId, null);
   assert.equal(bare.refreshToken, null);
@@ -79,6 +80,42 @@ test('boot wires the Etsy settings and the saved token file into the connector, 
   assert.deepEqual(JSON.parse(text).meta.connectors, { etsy: { configured: true, setup: null } });
   assert.doesNotMatch(text, SECRET_RE);
   assert.doesNotMatch(fs.readFileSync(path.join(dataDir, 'events.ndjson'), 'utf8'), SECRET_RE);
+});
+
+test('ETSY_TOKEN_URL overrides the OAuth token endpoint from the environment through boot to the refresh', async (t) => {
+  const OVERRIDE = 'https://openapi.etsy.com/v3/public/oauth/token'; // the host Etsy's OpenAPI spec lists
+  assert.equal(loadConfig({ ETSY_TOKEN_URL: ` ${OVERRIDE} ` }).etsy.tokenUrl, OVERRIDE);
+  assert.equal(loadConfig({ ETSY_TOKEN_URL: '' }).etsy.tokenUrl, null, 'blank means the default');
+  assert.throws(() => loadConfig({ ETSY_TOKEN_URL: 'http://openapi.etsy.com/v3/public/oauth/token' }), /ETSY_TOKEN_URL must be an https URL/);
+  assert.throws(() => loadConfig({ ETSY_TOKEN_URL: 'openapi.etsy.com' }), /ETSY_TOKEN_URL must be an https URL/);
+
+  const dataDir = tmp();
+  const { ETSY_ACCESS_TOKEN, ...noAccess } = ENV; // a refresh token alone: the first call must refresh
+  const config = loadConfig({ ...noAccess, ETSY_TOKEN_URL: OVERRIDE, OUTPOST_DATA: dataDir });
+  const urls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url) === OVERRIDE || String(url) === ETSY_TOKEN_URL) return json(200, { access_token: 'ACCESS-new', expires_in: 3600, refresh_token: 'REFRESH-new' });
+    return json(200, { count: 0, results: [] });
+  };
+  let station;
+  try {
+    station = await startStation(config);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+  t.after(() => station.stop());
+  assert.deepEqual(await station.connectors.etsy.fetchReceipts(), []);
+  assert.equal(urls[0], OVERRIDE, 'the refresh went to the configured endpoint');
+  assert.ok(!urls.includes(ETSY_TOKEN_URL), 'the default endpoint was not called');
+
+  // Connector level: unset means the default (Etsy's authentication guide).
+  const seen = [];
+  const plain = createEtsyConnector({ apiKey: 'KEY-SECRET', sharedSecret: 'SHARED-SECRET', refreshToken: 'REFRESH-x', shopId: '777', tokenUrl: null, now: () => 0, log: () => {},
+    fetchImpl: async (url) => { seen.push(String(url)); return String(url) === ETSY_TOKEN_URL ? json(200, { access_token: 'ACCESS-1' }) : json(200, { count: 0, results: [] }); } });
+  await plain.fetchReceipts();
+  assert.equal(seen[0], 'https://api.etsy.com/v3/public/oauth/token');
 });
 
 // ---- POST /api/connectors/etsy/sync ---------------------------------------------------------

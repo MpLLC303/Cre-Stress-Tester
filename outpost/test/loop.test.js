@@ -5,8 +5,9 @@ import os from 'node:os';
 import path from 'node:path';
 import Anthropic from '@anthropic-ai/sdk';
 import { toolsForAgent } from '../sidecar/capability.js';
-import { runAgentLoop, TOOL_RESULT_MAX_CHARS } from '../sidecar/loop.js';
+import { MIN_TURN_MAX_TOKENS, runAgentLoop, TOOL_RESULT_MAX_CHARS } from '../sidecar/loop.js';
 import { costOf } from '../sidecar/pricing.js';
+import { DISPLAY_UPDATES_BETA, FALLBACK_BETA, createAnthropicProvider } from '../sidecar/providers/anthropic.js';
 import { createScriptedProvider } from '../sidecar/providers/scripted.js';
 import { createStore } from '../sidecar/store.js';
 
@@ -136,7 +137,7 @@ test('end_turn completes the run with the final text as summary', async () => {
   const call = provider.calls[0];
   assert.equal(call.model, 'claude-opus-5-5');
   assert.equal(call.effort, 'medium');
-  assert.equal(call.maxTokens, 16000);
+  assert.equal(call.maxTokens, 50000, "pixel's $1 run budget at Opus 5.5's $20/MTok output");
   assert.equal(call.agent, env.agent);
   assert.equal(call.task, env.task);
   assert.match(call.system, /You are PIXEL, POD Designer/);
@@ -169,7 +170,7 @@ test('a granted client tool runs with the run ctx and its artifacts become outpu
   assert.equal(result.callId, 'toolu_1');
   assert.deepEqual(statuses(env.store), ['thinking', 'tool', 'thinking', 'idle']);
   const toolStatus = payloads(env.store, 'agent.status')[1];
-  assert.deepEqual(toolStatus, { agentId: 'pixel', status: 'tool', runId: 'run_1', taskId: 'task_1', tool: 'render_svg_design', objectId: 'prod-design' });
+  assert.deepEqual(toolStatus, { agentId: 'pixel', status: 'tool', runId: 'run_1', taskId: 'task_1', tool: 'render_svg_design', objectId: 'prod-design', detail: 'Rendering.' });
   assert.deepEqual(lastUserContent(provider.calls[1]), [{ type: 'tool_result', tool_use_id: 'toolu_1', content: '{"saved":"mug"}' }]);
 });
 
@@ -339,6 +340,45 @@ test('a refusal ends the run as refused', async () => {
   assert.equal(res.outcome, 'refused');
   assert.equal(finished(env.store).error, 'model refused (cyber): declined');
   assert.equal(env.store.state.runs.run_1.outcome, 'refused');
+  assert.equal(res.summary, '[refused] model refused (cyber): declined');
+  assert.equal(finished(env.store).summary, res.summary);
+});
+
+test('a refused turn\'s partial output is discarded: the summary says [refused], and no tool of that turn runs (LIVE-3)', async () => {
+  const env = setup();
+  const tools = fakeToolset();
+  const partial = 'Revenue for this niche is $48,200/month and the top seller';
+  const provider = fakeProvider([
+    msg([text('Looking at the market.'), use('toolu_0', 'read_artifact', { text: 'art_1' })], 'tool_use'),
+    msg([{ type: 'thinking', thinking: 'Partial reasoning.', signature: 's' }, text(partial), use('toolu_1', 'render_svg_design', { text: 'mu' })], 'refusal', {
+      stop_details: { type: 'refusal', category: 'reasoning_extraction', explanation: null },
+    }),
+  ]);
+  const res = await run(env, provider, tools);
+
+  assert.equal(res.outcome, 'refused');
+  assert.equal(res.summary, '[refused] model refused (reasoning_extraction)', 'not the partial text, and not the previous turn\'s text');
+  assert.equal(finished(env.store).summary, res.summary);
+  assert.deepEqual(tools.ran.map((r) => r.name), ['read_artifact'], 'the refused turn\'s tool never runs');
+  const steps = payloads(env.store, 'run.step');
+  assert.equal(steps[1].stopReason, 'refusal');
+  assert.equal(steps[1].text, undefined);
+  assert.equal(env.store.state.runs.run_1.lastText, 'Looking at the market.');
+  assert.ok(!JSON.stringify(env.store.events()).includes('48,200'), 'the partial figure is recorded nowhere');
+  assert.ok(!JSON.stringify(env.store.events()).includes('Partial reasoning'));
+});
+
+test('a max_tokens turn\'s partial output is discarded: the summary says [truncated], and its tools never run (LIVE-3)', async () => {
+  const env = setup();
+  const tools = fakeToolset();
+  const res = await run(env, fakeProvider([msg([text('Here is the design: <svg width="12'), use('toolu_1', 'render_svg_design', { text: 'mu' })], 'max_tokens')]), tools);
+  assert.equal(res.outcome, 'failed');
+  assert.equal(res.summary, '[truncated] response hit max_tokens; tools on a truncated turn are not run');
+  assert.equal(finished(env.store).summary, res.summary);
+  assert.equal(payloads(env.store, 'run.step')[0].text, undefined);
+  assert.equal(tools.ran.length, 0);
+  assert.equal(payloads(env.store, 'tool.called').length, 0);
+  assert.ok(!JSON.stringify(env.store.events()).includes('<svg width'), 'the partial text is recorded nowhere');
 });
 
 test('a provider exception fails the run with the SDK error class and status', async () => {
@@ -363,6 +403,7 @@ test('max_tokens fails the run without running the truncated turn\'s tools', asy
   assert.equal(res.outcome, 'failed');
   assert.match(res.error, /max_tokens/);
   assert.equal(tools.ran.length, 0);
+  assert.match(res.summary, /^\[truncated\] /);
 });
 
 test('pause_turn re-sends the paused turn without adding a user message; server tools never run locally', async () => {
@@ -632,4 +673,137 @@ test('summarize gets the run ctx, so an approval card can say what granting real
     ctxBase: { config: {}, connectors: { etsy: { configured: false } } },
   });
   assert.equal(payloads(env.store, 'approval.requested')[0].summary, 'mode for run_1: dry run');
+});
+
+// ---- progress notes, max_tokens and streamed tool input (LIVE-5, LIVE-6) -----------------------
+
+const thinking = (t, signature) => ({ type: 'thinking', thinking: t, signature });
+
+test('a tool turn whose only prose is a progress note shows the latest note as step text and tool status detail; summaries stay text-only (LIVE-6)', async () => {
+  const env = setup();
+  const turn1 = [
+    thinking('', 's1'),
+    thinking('Looking at the brief first.', 's2'),
+    thinking('Saving the mug design now.', 's3'),
+    thinking('', 's4'),
+    use('toolu_1', 'render_svg_design', { text: 'mug' }),
+  ];
+  const original = structuredClone(turn1);
+  const provider = fakeProvider([
+    msg(turn1, 'tool_use'),
+    msg([thinking('Wrapping up.', 's5'), text('Saved one design. Artifacts: art_svg_1.')], 'end_turn'),
+  ]);
+  const res = await run(env, provider, fakeToolset());
+
+  const steps = payloads(env.store, 'run.step');
+  assert.equal(steps[0].text, 'Saving the mug design now.', 'the latest non-empty note');
+  assert.equal(steps[1].text, 'Saved one design. Artifacts: art_svg_1.', 'visible text wins over a note');
+  const toolStatus = payloads(env.store, 'agent.status').find((p) => p.status === 'tool');
+  assert.equal(toolStatus.detail, 'Saving the mug design now.');
+  assert.equal(res.summary, 'Saved one design. Artifacts: art_svg_1.');
+  assert.equal(provider.calls[1].messages[1].content, turn1, 'the thinking blocks go back verbatim');
+  assert.deepEqual(turn1, original, 'and unmodified');
+});
+
+test('a final turn with only a progress note never becomes the summary (LIVE-6)', async () => {
+  const env = setup();
+  const res = await run(env, fakeProvider([msg([thinking('All done here.', 's1')], 'end_turn')]), fakeToolset());
+  assert.equal(res.outcome, 'completed');
+  assert.equal(res.summary, '');
+  assert.equal(finished(env.store).summary, undefined);
+  assert.equal(payloads(env.store, 'run.step')[0].text, 'All done here.');
+});
+
+test('max_tokens per turn is what the budget left buys at the output rate, never below 16000; no budget, no cap (LIVE-5)', async () => {
+  const askFor = async (agentOverrides, extra = {}, spend = null) => {
+    const env = setup('pixel', agentOverrides);
+    const provider = fakeProvider([spend ? msg([use('toolu_1', 'read_artifact', { text: 'a' })], 'tool_use', { usage: spend }) : done(), done()]);
+    await run(env, provider, fakeToolset(), extra);
+    return provider.calls.map((c) => c.maxTokens);
+  };
+  assert.deepEqual(await askFor({ runBudgetUsd: 1 }), [50000]);
+  assert.deepEqual(await askFor({ runBudgetUsd: 0.1 }), [MIN_TURN_MAX_TOKENS]);
+  assert.equal(MIN_TURN_MAX_TOKENS, 16000);
+  assert.deepEqual(await askFor({ runBudgetUsd: undefined }, { stationDailyBudgetUsd: Infinity }), [undefined]);
+  assert.deepEqual(await askFor({ runBudgetUsd: 10 }, { stationDailyBudgetUsd: 0.6 }), [30000], 'the daily budget binds too');
+  // A first turn that spends $0.40 of a $1 budget leaves room for 30000 output tokens.
+  const [first, second] = await askFor({ runBudgetUsd: 1 }, {}, { input_tokens: 0, output_tokens: 20000 });
+  assert.deepEqual([first, second], [50000, 30000]);
+});
+
+/** A fake SDK client whose stream() replays `turns` (a function result is thrown when it is an Error). */
+function streamClient(turns) {
+  const calls = [];
+  return {
+    calls,
+    beta: {
+      messages: {
+        stream: (params, options) => {
+          calls.push({ params, options });
+          const turn = turns[Math.min(calls.length, turns.length) - 1];
+          return {
+            currentMessage: { usage: { input_tokens: 3000, output_tokens: 1 } },
+            abort() {},
+            finalMessage: async () => {
+              if (turn instanceof Error) throw turn;
+              return turn;
+            },
+          };
+        },
+      },
+    },
+  };
+}
+
+test('through the real Anthropic provider: display-updates notes reach the step, the budget sets max_tokens, the request matches the model (LIVE-2/5/6)', async () => {
+  const env = setup();
+  const turn1 = msg([thinking('', 's1'), thinking('Checking the workspace first.', 's2'), use('toolu_1', 'list_files', { text: '.' })], 'tool_use');
+  const client = streamClient([turn1, msg([thinking('', 's3'), text('Nothing to add. Artifacts: none.')], 'end_turn')]);
+  const res = await run(env, createAnthropicProvider({ client }), fakeToolset());
+
+  assert.equal(res.outcome, 'completed');
+  assert.equal(res.summary, 'Nothing to add. Artifacts: none.');
+  assert.equal(payloads(env.store, 'run.step')[0].text, 'Checking the workspace first.');
+  const [{ params }] = client.calls;
+  assert.equal(params.model, 'claude-opus-5-5');
+  assert.equal(params.max_tokens, 50000);
+  assert.deepEqual(params.thinking, { type: 'adaptive', display: 'updates' });
+  assert.deepEqual(params.betas, [FALLBACK_BETA, DISPLAY_UPDATES_BETA]);
+  assert.ok(params.tools.every((t) => t.strict === true && t.eager_input_streaming === true));
+  assert.equal(client.calls[1].params.messages[1].content, turn1.content, 'thinking blocks go back to the API verbatim');
+  assert.deepEqual(client.calls[1].params.thinking, params.thinking, 'the thinking setting is the same on every request of the run');
+});
+
+test('through the real provider on claude-haiku-4-5 (OUTPOST_MODEL): no thinking, effort, fallbacks or betas reach the wire (LIVE-2)', async () => {
+  const env = setup();
+  const client = streamClient([done()]);
+  const res = await run(env, createAnthropicProvider({ client }), fakeToolset(), { model: 'claude-haiku-4-5' });
+  assert.equal(res.outcome, 'completed');
+  const [{ params }] = client.calls;
+  assert.equal(params.model, 'claude-haiku-4-5');
+  for (const key of ['thinking', 'output_config', 'fallbacks', 'betas']) assert.equal(key in params, false, `${key} is omitted`);
+  assert.equal(params.max_tokens, 64000, "pixel's $1 buys 200000 Haiku tokens; capped at the provider ceiling");
+});
+
+test('an attempt discarded for unparseable streamed tool input is recorded and billed, then the turn completes (LIVE-5)', async () => {
+  const env = setup();
+  const client = streamClient([
+    new Anthropic.AnthropicError('Unable to parse tool parameter JSON from model. JSON: {]'),
+    msg([use('toolu_1', 'render_svg_design', { text: 'mug' })], 'tool_use'),
+    done(),
+  ]);
+  const tools = fakeToolset();
+  const res = await run(env, createAnthropicProvider({ client }), tools);
+
+  assert.equal(res.outcome, 'completed');
+  assert.equal(client.calls.length, 3);
+  assert.equal(tools.ran.length, 1, 'only the completed turn\'s tool runs');
+  const steps = payloads(env.store, 'run.step');
+  assert.deepEqual(steps.map((s) => [s.turn, s.stopReason]), [[1, 'discarded_invalid_tool_json'], [1, 'tool_use'], [2, 'end_turn']]);
+  const discardedCost = costOf('claude-opus-5-5', { input_tokens: 3000, output_tokens: 1 });
+  assert.equal(steps[0].costUsd, discardedCost);
+  assert.ok(Math.abs(res.costUsd - (discardedCost + 2 * costOf('claude-opus-5-5', USAGE))) < 1e-12, 'the discarded attempt counts toward the run');
+  assert.equal(res.turns, 2);
+  assert.ok(payloads(env.store, 'log').some((l) => l.level === 'warn' && /turn 1 re-issued/.test(l.message)));
+  assert.ok(!JSON.stringify(env.store.events()).includes('{]'), 'the partial tool JSON is not logged');
 });

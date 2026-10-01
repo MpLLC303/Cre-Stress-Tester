@@ -15,19 +15,39 @@ import { newId } from './ids.js';
 import { costByModel, costOf, priceFor, servedModel, unpricedModels } from './pricing.js';
 import { systemPrompt, taskMessage } from './prompts.js';
 
-const MAX_TOKENS = 16000;
+/**
+ * Floor of the per-turn max_tokens the loop asks for when a budget binds (see turnMaxTokens): the
+ * fixed value the loop used before, so a budget never makes a turn more likely to be cut off than
+ * it was, and one turn overshoots the budget by no more than it could then.
+ */
+export const MIN_TURN_MAX_TOKENS = 16000;
 export const TOOL_RESULT_MAX_CHARS = 20000;
 const DEFAULT_MAX_TURNS = 12;
 
 class RunStop extends Error {
-  constructor(outcome, message) {
+  /** @param {string} [label] when set, the run's summary becomes `${label} ${message}` */
+  constructor(outcome, message, label) {
     super(message);
     this.outcome = outcome;
+    this.label = label;
   }
 }
 
 function textOf(content) {
   return (content || []).filter((b) => b.type === 'text').map((b) => b.text).join('').trim();
+}
+
+/**
+ * The latest non-empty thinking text of a turn. On models that write their between-tool notes as
+ * thinking blocks, the provider asks for display 'updates', and these are those notes. Only the
+ * text is read; the blocks themselves go back to the API verbatim and nowhere else.
+ */
+function progressNote(content) {
+  for (let i = (content || []).length - 1; i >= 0; i -= 1) {
+    const b = content[i];
+    if (b?.type === 'thinking' && typeof b.thinking === 'string' && b.thinking.trim()) return b.thinking.trim();
+  }
+  return '';
 }
 
 function outputText(output) {
@@ -240,7 +260,8 @@ export async function runAgentLoop(opts) {
     return resolution;
   }
 
-  async function executeCall(block) {
+  /** @param {string} [note] the turn's visible text or progress note, shown while the tool runs */
+  async function executeCall(block, note) {
     const { id: callId, name, input } = block;
     const deny = (reason) => {
       store.append('tool.denied', { runId, callId, agentId: agent.id, tool: name, reason }, actor);
@@ -268,7 +289,7 @@ export async function runAgentLoop(opts) {
     }
 
     signal?.throwIfAborted(); // never start a tool for a halted run
-    setStatus('tool', { tool: name, objectId: check.objectId });
+    setStatus('tool', { tool: name, objectId: check.objectId, ...(note ? { detail: preview(note, 200) } : {}) });
     store.append('tool.called', { runId, callId, agentId: agent.id, tool: name, objectId: check.objectId, input: inputPreview }, actor);
     const started = Date.now();
     const running = Promise.resolve().then(() => tool.run(input, ctx));
@@ -305,6 +326,31 @@ export async function runAgentLoop(opts) {
     if (blocked) throw new RunStop('budget_exceeded', blocked);
   }
 
+  /**
+   * max_tokens for the next turn: what the remaining run/daily budget buys at the model's output
+   * rate, never below MIN_TURN_MAX_TOKENS; undefined (the provider's own ceiling) when no budget
+   * binds or the model is free. Thinking counts toward max_tokens, so an always-thinking model needs
+   * room, but one turn at a 64K ceiling could otherwise overshoot a small run budget by far more
+   * than the budget itself.
+   */
+  function turnMaxTokens() {
+    const perMTok = priceFor(model).output;
+    const remaining = ctx.budgetRemainingUsd();
+    if (!(perMTok > 0) || !Number.isFinite(remaining)) return undefined;
+    return Math.max(MIN_TURN_MAX_TOKENS, Math.floor((remaining * 1_000_000) / perMTok));
+  }
+
+  /**
+   * A provider attempt that was billed but discarded (the SDK could not parse a streamed tool
+   * input and the provider re-issued the turn): recorded as its own step so its cost counts.
+   */
+  function recordDiscarded({ usage } = {}) {
+    const u = usage && typeof usage === 'object' ? usage : {};
+    store.append('run.step', { runId, agentId: agent.id, turn: turns + 1, stopReason: 'discarded_invalid_tool_json', usage: u, costUsd: costOf(model, u) }, actor);
+    // The SDK's error text carries the model's partial tool JSON: discarded output, not logged.
+    store.append('log', { level: 'warn', message: `run ${runId}: turn ${turns + 1} re-issued, the streamed tool input was not parseable JSON; the attempt's reported usage is billed to this run` }, actor);
+  }
+
   /** Drive provider turns until the run completes (resolves) or stops (throws). */
   async function drive() {
     priceFor(model);
@@ -325,15 +371,22 @@ export async function runAgentLoop(opts) {
         system,
         tools,
         messages: [...messages],
-        maxTokens: MAX_TOKENS,
+        maxTokens: turnMaxTokens(),
         signal,
         agent,
         task,
+        onDiscardedAttempt: recordDiscarded,
       });
       turns += 1;
       messages.push({ role: 'assistant', content: msg.content });
       if (usesWeb(msg.content)) taint.add(WEB_TAINT);
-      summary = textOf(msg.content);
+      const turnText = textOf(msg.content);
+      // A refused or max_tokens turn can stop mid-sentence: its partial output is discarded, never
+      // shown or passed on as a result (the run's summary says what happened instead).
+      const cut = msg.stop_reason === 'refusal' || msg.stop_reason === 'max_tokens';
+      if (!cut) summary = turnText; // the summary is visible text only, never thinking
+      // What the step shows: the visible text, else the model's latest progress note.
+      const note = cut ? '' : turnText || progressNote(msg.content);
       // Priced before the event is built: the call is already paid for, so run.step is always
       // recorded (an unlisted fallback model is billed at the highest known rate, never skipped).
       const usage = msg.usage ?? {};
@@ -348,7 +401,7 @@ export async function runAgentLoop(opts) {
         stopReason: msg.stop_reason ?? 'unknown',
         usage,
         costUsd,
-        text: summary ? preview(summary, 600) : undefined,
+        text: note ? preview(note, 600) : undefined,
         ...(fallback ? { costByModel: costByModel(model, usage) } : {}),
         ...(served ? { servedModel: served } : {}),
       }, actor);
@@ -365,12 +418,12 @@ export async function runAgentLoop(opts) {
           return;
         case 'refusal': {
           const d = msg.stop_details;
-          throw new RunStop('refused', `model refused${d?.category ? ` (${d.category})` : ''}${d?.explanation ? `: ${d.explanation}` : ''}`);
+          throw new RunStop('refused', `model refused${d?.category ? ` (${d.category})` : ''}${d?.explanation ? `: ${d.explanation}` : ''}`, '[refused]');
         }
         case 'pause_turn':
           continue; // the server resumes from the trailing server-tool block; no extra user turn
         case 'max_tokens':
-          throw new RunStop('failed', 'response hit max_tokens; tools on a truncated turn are not run');
+          throw new RunStop('failed', 'response hit max_tokens; tools on a truncated turn are not run', '[truncated]');
         case 'tool_use': {
           const calls = msg.content.filter((b) => b.type === 'tool_use');
           if (!calls.length) throw new RunStop('failed', 'stop_reason tool_use without a tool_use block');
@@ -386,7 +439,7 @@ export async function runAgentLoop(opts) {
               results.push({ type: 'tool_result', tool_use_id: call.id, content: reason, is_error: true });
               continue;
             }
-            results.push(await executeCall(call));
+            results.push(await executeCall(call, note));
           }
           messages.push({ role: 'user', content: results });
           if (stop) throw new RunStop('budget_exceeded', stop);
@@ -405,6 +458,8 @@ export async function runAgentLoop(opts) {
     if (err instanceof RunStop) {
       outcome = err.outcome;
       error = err.message;
+      // Explicit, so the task card and a reviewing commander never read it as a result.
+      if (err.label) summary = `${err.label} ${err.message}`;
     } else if (isAbort(err, signal)) {
       outcome = 'aborted';
       error = 'run aborted';
