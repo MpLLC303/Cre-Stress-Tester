@@ -58,6 +58,10 @@ body::after {
   background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 62%, rgba(0, 0, 0, 0.42) 100%);
 }
 
+[hidden] {
+  display: none !important;
+}
+
 :focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
@@ -352,7 +356,7 @@ code {
   box-shadow: inset 1px 0 0 rgba(57, 255, 136, 0.08), -6px 0 18px rgba(0, 0, 0, 0.4);
 }
 
-.sheet-handle {
+.sheet-bar {
   display: none;
 }
 
@@ -382,9 +386,6 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.sheet-close {
-  display: none;
 }
 
 .panel-body {
@@ -1049,27 +1050,35 @@ legend {
 /* ledger */
 .figures {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   margin-top: 10px;
 }
 .figure {
-  padding: 8px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'label val' 'sub val';
+  align-items: center;
+  gap: 0 12px;
+  padding: 8px 10px;
   background: var(--bg-3);
   border: 1px solid var(--line);
   min-width: 0;
 }
 .fig-label {
-  font-size: 9.5px;
-  letter-spacing: 0.12em;
-  color: var(--muted);
+  grid-area: label;
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  color: var(--ink-2);
 }
 .fig-val {
-  font-size: 17px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+  grid-area: val;
+  font-size: 21px;
+  line-height: 1.2;
+  text-align: right;
+  white-space: nowrap;
 }
 .fig-sub {
+  grid-area: sub;
   font-size: 10px;
   color: var(--muted);
 }
@@ -1093,13 +1102,10 @@ legend {
   color: var(--grey);
 }
 .f-claim s,
-.claim s,
+.claim-s,
 .p-agent_claim s {
   color: var(--grey);
   text-decoration-thickness: 2px;
-}
-.net .kv {
-  grid-template-columns: max-content minmax(0, 1fr) max-content minmax(0, 1fr);
 }
 
 .prov-connector {
@@ -1152,9 +1158,26 @@ legend {
   text-align: right;
   white-space: nowrap;
 }
-.tbl .entry td {
+.tbl .entry td,
+.tbl .entry th {
   border-bottom: none;
   padding-bottom: 0;
+}
+.entry-line {
+  color: var(--ink);
+}
+.entry-meta {
+  margin-top: 2px;
+  font-size: 10.5px;
+  overflow-wrap: anywhere;
+}
+.entries .amount {
+  font-size: 13px;
+  color: var(--ink);
+}
+.entries .p-agent_claim .amount,
+.entries .p-agent_claim .entry-line {
+  color: var(--grey);
 }
 .tbl .entry-sub td {
   font-size: 10.5px;
@@ -1297,6 +1320,9 @@ details.resolved summary {
 }
 .t-handoff {
   color: var(--cyan);
+}
+.t-claim {
+  color: var(--grey);
 }
 .t-artifact {
   color: var(--ink);
@@ -1510,7 +1536,21 @@ details.resolved summary {
   }
   .brand-row {
     width: 100%;
-    justify-content: space-between;
+    gap: 6px 10px;
+  }
+  .brand {
+    display: contents;
+  }
+  .link-ind {
+    order: 2;
+    margin-left: auto;
+  }
+  .badge.provider {
+    order: 3;
+  }
+  /* While the sheet is open, let the page scroll the map clear of it. */
+  body:has(#panel.open) #shell {
+    padding-bottom: 55dvh;
   }
   .station-name {
     font-size: 14px;
@@ -1594,16 +1634,31 @@ details.resolved summary {
     border-top: 1px solid var(--line-strong);
     box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.65), 0 -1px 12px rgba(57, 255, 136, 0.15);
   }
-  .sheet-handle {
+  .sheet-bar {
     display: flex;
     align-items: center;
+    gap: 6px;
+    padding-right: 8px;
+    background: var(--bg-3);
+    border-bottom: 1px solid var(--line);
+    border-top: 2px solid var(--accent, var(--ink));
+  }
+  .panel:not(.open) .sheet-back {
+    display: none;
+  }
+  .panel-head {
+    display: none;
+  }
+  .sheet-handle {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    align-items: center;
     gap: 8px;
-    width: 100%;
     min-height: 44px;
     padding: 8px 12px;
-    background: var(--bg-3);
+    background: none;
     border: none;
-    border-bottom: 1px solid var(--line);
     color: var(--ink);
     letter-spacing: 0.14em;
     font-size: 11.5px;
@@ -1620,12 +1675,6 @@ details.resolved summary {
   .panel:not(.open) .panel-main {
     display: none;
   }
-  .panel-head {
-    border-top-width: 2px;
-  }
-  .sheet-close {
-    display: inline-flex;
-  }
   .panel-body {
     padding: 10px 12px 18px;
   }
@@ -1635,9 +1684,6 @@ details.resolved summary {
     left: 10px;
     bottom: 56px;
     max-width: none;
-  }
-  .net .kv {
-    grid-template-columns: max-content minmax(0, 1fr);
   }
   .modal-backdrop {
     padding: 8px;

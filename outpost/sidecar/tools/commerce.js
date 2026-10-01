@@ -1,6 +1,7 @@
 // Commerce tools: Etsy-shaped listing drafts, publishing (approval-gated, draft-only or dry run),
 // and client deliveries (approval-gated, always a manual hand-off: Fiverr has no seller API).
 
+import { basename } from 'node:path';
 import { checkArtifactIds, loadArtifact, saveArtifact } from './files.js';
 
 export const ETSY_WHEN_MADE = ['made_to_order', '2020_2026', '2010_2019', '2007_2009', 'before_2007'];
@@ -117,7 +118,7 @@ async function uploadImages(ctx, etsy, listingId, artifactIds) {
     }
     try {
       const { content } = loadArtifact(ctx, id);
-      const { imageId } = await etsy.uploadListingImage(listingId, content, meta.path.split('/').at(-1));
+      const { imageId } = await etsy.uploadListingImage(listingId, content, basename(meta.path));
       uploaded.push({ artifact_id: id, listing_image_id: imageId });
     } catch (err) {
       skipped.push({ artifact_id: id, reason: `upload failed: ${err.message}` });

@@ -51,12 +51,12 @@ export function makeCanvas(w, h) {
 // Neutral station metals.
 export const METAL = {
   K: '#05070c',
-  M1: '#1a212e',
-  M2: '#2a3343',
-  M3: '#3c475b',
-  M4: '#58657c',
-  M5: '#8794ab',
-  PAPER: '#dfe5ee',
+  M1: '#252e3e',
+  M2: '#384359',
+  M3: '#506079',
+  M4: '#71819d',
+  M5: '#a6b3c9',
+  PAPER: '#e3e9f2',
 };
 
 // ---------------------------------------------------------------- astronauts (12x16)
@@ -560,32 +560,34 @@ export const STATUS_COLORS = {
 };
 
 /**
- * Speech-bubble canvas around an inner content painter.
- * Returns { canvas, w, h } where the tail tip is at (w/2, h-1).
+ * Speech-bubble canvas around an inner content painter, with its tail at the bottom-left
+ * (the bubble sits to the upper-right of a helmet). Returns { canvas, w, h }; the tail tip
+ * is at (0, h-1).
  */
 function bubbleCanvas(innerW, innerH, { bg, border }, paint) {
-  const w = innerW + 4;
+  const w = innerW + 4 + 2;
   const h = innerH + 4 + 2; // 2px tail
   const cv = makeCanvas(w, h);
   const g = cv.getContext('2d');
+  const bx = 2;
+  const bw = w - 2;
   const bh = h - 2;
   g.fillStyle = border;
-  g.fillRect(1, 0, w - 2, 1);
-  g.fillRect(1, bh - 1, w - 2, 1);
-  g.fillRect(0, 1, 1, bh - 2);
-  g.fillRect(w - 1, 1, 1, bh - 2);
+  g.fillRect(bx + 1, 0, bw - 2, 1);
+  g.fillRect(bx + 1, bh - 1, bw - 2, 1);
+  g.fillRect(bx, 1, 1, bh - 2);
+  g.fillRect(bx + bw - 1, 1, 1, bh - 2);
   g.fillStyle = bg;
-  g.fillRect(1, 1, w - 2, bh - 2);
-  // tail
-  const tx = (w >> 1) - 1;
+  g.fillRect(bx + 1, 1, bw - 2, bh - 2);
+  // tail toward the lower-left
   g.fillStyle = border;
-  g.fillRect(tx - 1, bh - 1, 4, 1);
-  g.fillRect(tx, bh, 2, 1);
-  g.fillRect(tx, bh + 1, 1, 1);
+  g.fillRect(bx, bh - 2, 1, 2);
+  g.fillRect(1, bh - 1, 2, 1);
+  g.fillRect(0, bh, 2, 1);
+  g.fillRect(0, bh + 1, 1, 1);
   g.fillStyle = bg;
-  g.fillRect(tx, bh - 1, 2, 1);
-  g.fillRect(tx, bh, 1, 1);
-  paint(g, 2, 2);
+  g.fillRect(bx + 1, bh - 2, 1, 1);
+  paint(g, bx + 2, 2);
   return { canvas: cv, w, h };
 }
 

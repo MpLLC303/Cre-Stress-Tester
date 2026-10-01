@@ -133,13 +133,26 @@ export function createClient() {
     retryTimer = setTimeout(reconnect, RETRY_MS);
   }
 
+  // Is the server's log still the one we projected? Compare the newest feed entry we hold
+  // that the snapshot also retains. No overlap means we cannot tell; assume it is.
+  function sameLog(snapState) {
+    const theirs = new Map((snapState.feed || []).map((f) => [f.seq, f]));
+    const mine = client.state.feed || [];
+    for (let i = mine.length - 1; i >= 0; i--) {
+      const g = theirs.get(mine[i].seq);
+      if (g) return g.ts === mine[i].ts && g.type === mine[i].type && g.text === mine[i].text;
+    }
+    return true;
+  }
+
   // Reopen with since=state.seq. The snapshot fetch is only used to detect a reset log
-  // (seq went backwards) and to pick up changed meta (e.g. restarted with a provider key).
+  // (seq went backwards, or the same seq now names a different event) and to pick up
+  // changed meta (e.g. restarted with a provider key).
   async function reconnect() {
     if (closed) return;
     try {
       const snap = await fetchSnapshot();
-      if (snap.state.seq < client.state.seq) {
+      if (snap.state.seq < client.state.seq || !sameLog(snap.state)) {
         adopt(snap);
         notify(null);
       } else if (JSON.stringify(snap.meta || {}) !== JSON.stringify(client.meta)) {

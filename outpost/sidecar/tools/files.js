@@ -109,7 +109,8 @@ export async function readFile(input, ctx) {
 
 /** write_file: write a workspace file and register it as an artifact. */
 export async function writeFile(input, ctx) {
-  const type = KIND_BY_EXT[extname(input.path).toLowerCase()];
+  const target = resolveInWorkspace(ctx.workspaceDir, input.path);
+  const type = KIND_BY_EXT[extname(target).toLowerCase()];
   if (!type) return { ok: false, output: `unsupported file type; use one of ${Object.keys(KIND_BY_EXT).join(', ')}` };
   let content = input.content;
   if (Buffer.byteLength(content, 'utf8') > MAX_FILE_BYTES) return { ok: false, output: `content exceeds ${MAX_FILE_BYTES} bytes` };
@@ -126,7 +127,6 @@ export async function writeFile(input, ctx) {
     content = clean.svg;
   }
 
-  const target = resolveInWorkspace(ctx.workspaceDir, input.path);
   mkdirSync(dirname(target), { recursive: true });
   // Re-check after creating parents: a directory swapped for a symlink in between is refused.
   resolveInWorkspace(ctx.workspaceDir, input.path);

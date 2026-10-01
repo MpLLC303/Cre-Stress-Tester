@@ -135,7 +135,7 @@ const TOOL_LIST = [
   }),
   client('publish_listing', {
     sensitivity: 'approval',
-    description: 'Publish a listing draft. Pauses for operator approval first. With the Etsy connector configured it creates an Etsy DRAFT listing (never activated) and uploads PNG/JPEG designs; otherwise it is a DRY RUN that sends nothing. Either way it writes a publish_receipt artifact.',
+    description: 'Publish a listing draft once the operator approves (the run pauses until then). With the Etsy connector configured it creates an Etsy DRAFT listing (never activated) and uploads PNG/JPEG designs; otherwise it is a DRY RUN that sends nothing. Either way it writes a publish_receipt artifact.',
     properties: { draft_artifact_id: str('Artifact id of a listing_draft.', 64) },
     run: publishListing,
     summarize: (i) => `Publish listing draft ${i.draft_artifact_id} (Etsy draft if connected, otherwise dry run)`,
@@ -278,8 +278,8 @@ const API_UNSUPPORTED = {
   minLength: (n) => `At least ${n} characters.`,
   minimum: (n) => `Minimum ${n}.`,
   maximum: (n) => `Maximum ${n}.`,
-  minItems: (n) => `At least ${n} items.`,
-  maxItems: (n) => `At most ${n} items.`,
+  minItems: (n) => `At least ${n} item${n === 1 ? '' : 's'}.`,
+  maxItems: (n) => `At most ${n} item${n === 1 ? '' : 's'}.`,
 };
 
 /** The schema as strict tool use accepts it: unsupported limits become description text. */

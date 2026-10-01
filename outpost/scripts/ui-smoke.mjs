@@ -51,6 +51,11 @@ async function panelState(page) {
 
 /** Click a room on the canvas using station.json geometry; fall back to the test hook. */
 async function selectRoom(page, roomId, log) {
+  // On narrow screens the bottom sheet may cover the map: Esc closes it first.
+  if (await page.evaluate(() => matchMedia('(max-width: 900px)').matches)) {
+    await page.keyboard.press('Escape');
+    await sleep(150);
+  }
   const box = await page.locator('#world').boundingBox();
   const target = await page.evaluate((id) => {
     const st = window.__outpost.client.state.station;

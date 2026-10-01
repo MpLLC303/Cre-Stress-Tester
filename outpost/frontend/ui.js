@@ -131,8 +131,10 @@ function cents(c) {
   const v = Number(c) || 0;
   return `${v < 0 ? '−' : ''}$${(Math.abs(v) / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
+const negCents = (c) => (Number(c) ? `−${cents(c)}` : cents(0));
 /** Floor, so coverage is never overstated. */
 const pct = (x) => (x === null || x === undefined || !Number.isFinite(x) ? '—' : `${Math.floor(x * 100)}%`);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const pad2 = (n) => String(n).padStart(2, '0');
 function hms(ts) {
   const d = new Date(ts);
@@ -238,6 +240,7 @@ function feedClass(f, logLevels) {
     case 'approval.resolved':
       return 'approval';
     case 'ledger.entry':
+      return /\[agent_claim\]$/.test(t) ? 'claim' : 'ledger';
     case 'spend.recorded':
       return 'ledger';
     case 'handoff':
@@ -341,7 +344,7 @@ export function createUI(root, client, world) {
   function provBadge(p) {
     if (p === 'connector') return h('span', { class: 'badge prov-connector', title: 'Fetched from a platform API (carries source.externalId). Counted.', text: 'VERIFIED' });
     if (p === 'manual') return h('span', { class: 'badge prov-manual', title: 'Typed in by the operator. Counted as manual provenance.', text: 'OPERATOR' });
-    return h('span', { class: 'badge prov-claim', title: 'An agent said so. Displayed, never summed into counted totals.', text: 'AGENT CLAIM · NOT COUNTED' });
+    return h('span', { class: 'badge prov-claim', title: 'An agent said so. Displayed, never summed into counted totals.', text: 'CLAIM · NOT COUNTED' });
   }
 
   function setResult(el, kind, text) {
@@ -449,7 +452,7 @@ export function createUI(root, client, world) {
     document.body.append(backdrop);
     modalStack.push(entry);
     if (shell) shell.inert = true;
-    const first = focusables(dialog)[0];
+    const first = dialog.querySelector('[data-autofocus]') || focusables(dialog)[0];
     (first || dialog).focus({ preventScroll: true });
     return entry;
   }
@@ -517,7 +520,7 @@ export function createUI(root, client, world) {
             h('span', { class: `kind k-${a.kind}`, text: KIND_LABEL[a.kind] || String(a.kind).toUpperCase() }),
             h('h2', { id: titleId, class: 'art-modal-title', text: a.title }),
             h('a', { class: 'btn ghost small', href: url, target: '_blank', rel: 'noopener noreferrer' }, 'RAW ↗'),
-            h('button', { type: 'button', class: 'btn ghost small', 'aria-label': 'Close artifact viewer', on: { click: () => close() } }, '✕ CLOSE'),
+            h('button', { type: 'button', class: 'btn ghost small', 'aria-label': 'Close artifact viewer', 'data-autofocus': true, on: { click: () => close() } }, '✕ CLOSE'),
           ),
           h(
             'div',
@@ -628,7 +631,7 @@ export function createUI(root, client, world) {
       );
       total.set(
         usd(st.spend.totalUsd),
-        `${st.spend.steps} steps`,
+        plural(st.spend.steps, 'step'),
         'SPEND TOTAL = every run.step costUsd + spend.recorded usd in the event log (LLM + image). Reported separately; not subtracted from NET COUNTED.',
       );
       const t = st.ledger.totals;
@@ -1236,7 +1239,7 @@ export function createUI(root, client, world) {
               return h(
                 'div',
                 { class: `mem-ns${ns === roomId ? ' own' : ''}` },
-                h('div', { class: 'row' }, h('span', { class: 'strong mono', text: ns }), room ? h('span', { class: 'dim', text: room.name }) : null, h('span', { class: 'dim', text: `${mem[ns].writes} writes` })),
+                h('div', { class: 'row' }, h('span', { class: 'strong mono', text: ns }), room ? h('span', { class: 'dim', text: room.name }) : null, h('span', { class: 'dim', text: `${plural(mem[ns].writes, 'write')}` })),
                 keys.length ? h('ul', { class: 'list mem-keys' }, keys.map(([k, b]) => h('li', {}, h('code', { class: 'tool', text: k }), h('span', { class: 'dim', text: ` ${bytesFmt(b)}` })))) : empty('no keys'),
               );
             });
@@ -1257,7 +1260,7 @@ export function createUI(root, client, world) {
           'tr',
           {},
           h('th', { scope: 'row' }, nameFn ? nameFn(k) : k),
-          h('td', { class: 'bar-cell' }, h('span', { class: 'bar', vars: { '--w': `${max > 0 ? Math.max(1, Math.round((n / max) * 100)) : 0}%` }, 'aria-hidden': 'true' })),
+          h('td', { class: 'bar-cell' }, h('span', { class: 'bar', vars: { '--w': `${max > 0 && n > 0 ? Math.max(1, Math.round((n / max) * 100)) : 0}%` }, 'aria-hidden': 'true' })),
           h('td', { class: 'num', text: usd(n) }),
         ),
       )),
@@ -1280,14 +1283,14 @@ export function createUI(root, client, world) {
               { class: 'figure f-verified', title: "Sum of ledger.entry revenue − refunds with provenance 'connector'." },
               h('div', { class: 'fig-label', text: 'VERIFIED' }),
               h('div', { class: 'fig-val', text: cents(t.verifiedRevenueCents) }),
-              h('div', { class: 'fig-sub', text: `connector · ${t.verifiedOrders} orders · counted` }),
+              h('div', { class: 'fig-sub', text: `connector · ${plural(t.verifiedOrders, 'order')} · counted` }),
             ),
             h(
               'div',
               { class: 'figure f-manual', title: "Sum of ledger.entry revenue − refunds with provenance 'manual'." },
               h('div', { class: 'fig-label', text: 'OPERATOR-ENTERED' }),
               h('div', { class: 'fig-val', text: cents(t.operatorRevenueCents) }),
-              h('div', { class: 'fig-sub', text: `manual · ${t.operatorOrders} orders · counted` }),
+              h('div', { class: 'fig-sub', text: `manual · ${plural(t.operatorOrders, 'order')} · counted` }),
             ),
             h(
               'div',
@@ -1306,8 +1309,8 @@ export function createUI(root, client, world) {
         () => {
           const t = L().totals;
           return kv([
-            ['FEES', `−${cents(t.feesCents)}`, "ledger.entry kind 'fee' (connector + manual)"],
-            ['COSTS', `−${cents(t.costCents)}`, "ledger.entry kind 'cost' (connector + manual)"],
+            ['FEES', negCents(t.feesCents), "ledger.entry kind 'fee' (connector + manual)"],
+            ['COSTS', negCents(t.costCents), "ledger.entry kind 'cost' (connector + manual)"],
             ['NET COUNTED', h('span', { class: 'strong big', text: cents(netCents(t)) }), 'verified + operator-entered − fees − costs. Agent claims and LLM spend are excluded.'],
             ['EVIDENCE COVERAGE', pct(evidenceCoverage(t)), "verified ÷ (verified + operator-entered), rounded down; '—' when nothing is counted"],
           ]);
@@ -1326,25 +1329,27 @@ export function createUI(root, client, world) {
             if (!rows.length) return empty('No ledger entry yet.');
             return h(
               'table',
-              { class: 'tbl' },
-              h('thead', {}, h('tr', {}, ['STREAM', 'VERIFIED', 'OPERATOR', 'CLAIMED*', 'FEES+COSTS', 'NET'].map((c, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: c })))),
+              { class: 'tbl streams' },
+              h('thead', {}, h('tr', {}, ['STREAM', 'VERIFIED', 'OPERATOR', 'NET'].map((c, i) => h('th', { scope: 'col', class: i ? 'num' : '', text: c })))),
               h(
                 'tbody',
                 {},
-                rows.map(([name, t]) =>
+                rows.map(([name, t]) => [
                   h(
                     'tr',
-                    {},
+                    { class: 'entry' },
                     h('th', { scope: 'row', text: name }),
                     h('td', { class: 'num', text: cents(t.verifiedRevenueCents) }),
                     h('td', { class: 'num', text: cents(t.operatorRevenueCents) }),
-                    h('td', { class: 'num claim' }, h('s', { text: cents(t.claimedRevenueCents) })),
-                    h('td', { class: 'num', text: `−${cents(t.feesCents + t.costCents)}` }),
                     h('td', { class: 'num strong', text: cents(netCents(t)) }),
                   ),
-                ),
+                  h(
+                    'tr',
+                    { class: 'entry-sub' },
+                    h('td', { colspan: '4' }, `fees+costs ${negCents(t.feesCents + t.costCents)} · agent claims `, h('s', { class: 'claim-s', text: cents(t.claimedRevenueCents) }), ' not counted'),
+                  ),
+                ]),
               ),
-              h('caption', { text: '* claimed = agent claims, not counted in NET' }),
             );
           },
         ),
@@ -1395,17 +1400,19 @@ export function createUI(root, client, world) {
               rows.push(
                 h(
                   'tr',
-                  { class: `entry p-${e.provenance}` },
-                  h('td', { class: 'mono', text: ymd(e.occurredAt) }),
-                  h('td', { text: `${e.stream} · ${e.kind}` }),
-                  h('td', { class: 'num' }, e.provenance === 'agent_claim' ? h('s', { text: amt }) : amt),
-                  h('td', {}, provBadge(e.provenance)),
+                  { class: `p-${e.provenance}` },
+                  h(
+                    'td',
+                    {},
+                    h('div', { class: 'entry-line' }, h('span', { class: 'mono', text: ymd(e.occurredAt) }), ` · ${e.stream} · ${e.kind}`),
+                    h('div', { class: 'entry-meta' }, provBadge(e.provenance), h('span', { class: 'mono dim', text: ` #${e.seq} ${srcText}` }), e.memo ? h('span', { class: 'dim', text: ` · ${e.memo}` }) : null),
+                  ),
+                  h('td', { class: 'num amount' }, e.provenance === 'agent_claim' ? h('s', { text: amt }) : amt),
                 ),
-                h('tr', { class: `entry-sub p-${e.provenance}` }, h('td', { colspan: '4' }, h('span', { class: 'mono dim', text: `#${e.seq} ${srcText}` }), e.memo ? ` · ${e.memo}` : '')),
               );
             }
             return [
-              h('table', { class: 'tbl entries' }, h('thead', {}, h('tr', {}, ['DATE', 'STREAM · KIND', 'AMOUNT', 'PROVENANCE'].map((c, i) => h('th', { scope: 'col', class: i === 2 ? 'num' : '', text: c })))), h('tbody', {}, rows)),
+              h('table', { class: 'tbl entries' }, h('thead', {}, h('tr', {}, h('th', { scope: 'col', title: 'date · stream · kind, then provenance · #seq source · memo', text: 'ENTRY' }), h('th', { scope: 'col', class: 'num', text: 'AMOUNT' }))), h('tbody', {}, rows)),
               Ld.entryOrder.length > ids.length ? h('p', { class: 'more', text: `+${Ld.entryOrder.length - ids.length} older entries` }) : null,
             ];
           },
@@ -1436,7 +1443,7 @@ export function createUI(root, client, world) {
               ['ETSY', configured ? h('span', { class: 'badge b-ok', text: 'CONFIGURED' }) : h('span', { class: 'badge b-warn', text: 'NOT CONFIGURED' }), 'meta.connectors.etsy.configured'],
               configured ? null : ['SETUP', 'set ETSY_API_KEY, ETSY_ACCESS_TOKEN and ETSY_SHOP_ID, then restart'],
               ['LAST SYNC', c ? `${stamp(c.lastSyncTs)} · ${c.ok ? 'OK' : 'FAILED'}` : 'never (no connector.sync event)'],
-              c ? ['RESULT', `fetched ${c.fetched} · new ${c.newEntries} · ${c.syncs} syncs total`] : null,
+              c ? ['RESULT', `fetched ${c.fetched} · new ${c.newEntries} · ${plural(c.syncs, 'sync')} total`] : null,
               c && c.error ? ['ERROR', h('span', { class: 't-danger', text: c.error })] : null,
             ]);
           },
@@ -1756,10 +1763,13 @@ export function createUI(root, client, world) {
     );
     const back = h('button', { type: 'button', class: 'btn ghost small', on: { click: () => open({ type: 'station' }) } }, '◂ STATION');
     const title = h('h2', { class: 'panel-title', id: 'panel-title' });
-    const close = h('button', { type: 'button', class: 'btn ghost small sheet-close', 'aria-label': 'Close terminal' }, '✕');
     const body = h('div', { class: 'panel-body', id: 'panel-body', tabindex: '-1' });
-    const main = h('div', { class: 'panel-main', id: 'panel-main' }, h('div', { class: 'panel-head' }, back, title, close), body);
-    const el = h('aside', { id: 'panel', class: 'panel', 'aria-labelledby': 'panel-title' }, handle, main);
+    // Narrow screens: the sheet bar (toggle + back) replaces the panel head, so the sheet
+    // spends one row on chrome instead of two.
+    const backSheet = h('button', { type: 'button', class: 'btn ghost small sheet-back', on: { click: () => open({ type: 'station' }) } }, '◂ STATION');
+    const sheetBar = h('div', { class: 'sheet-bar' }, handle, backSheet);
+    const main = h('div', { class: 'panel-main', id: 'panel-main' }, h('div', { class: 'panel-head' }, back, title), body);
+    const el = h('aside', { id: 'panel', class: 'panel', 'aria-labelledby': 'panel-title' }, sheetBar, main);
     let current = null;
     let sheetOpen = false;
 
@@ -1770,10 +1780,6 @@ export function createUI(root, client, world) {
       handle.querySelector('.handle-icon').textContent = on ? '▼' : '▲';
     }
     handle.addEventListener('click', () => setSheet(!sheetOpen));
-    close.addEventListener('click', () => {
-      setSheet(false);
-      handle.focus({ preventScroll: true });
-    });
 
     function normalize(sel) {
       if (!sel || typeof sel !== 'object' || !VIEWS[sel.type]) return { type: 'station' };
@@ -1798,6 +1804,7 @@ export function createUI(root, client, world) {
       el.dataset.view = sel.type;
       el.dataset.id = sel.id || '';
       back.hidden = sel.type === 'station';
+      backSheet.hidden = sel.type === 'station';
       store.set('view', J(sel));
       if (!quiet) setSheet(true);
       if (!fromWorld && view.focusId) focusWorld(view.focusId);
