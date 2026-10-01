@@ -1,0 +1,162 @@
+{
+  "version": 1,
+  "name": "OUTPOST-1",
+  "grid": { "w": 56, "h": 33, "tile": 16 },
+  "rooms": [
+    {
+      "id": "bridge",
+      "name": "Bridge",
+      "purpose": "Command authority: decomposes goals, delegates, reviews results, arbitrates priorities.",
+      "rect": [23, 12, 10, 9],
+      "color": "#3fd3ff",
+      "objects": [
+        { "id": "bridge-console", "type": "command_console", "at": [27, 15] },
+        { "id": "bridge-board", "type": "status_board", "at": [30, 14] }
+      ]
+    },
+    {
+      "id": "research",
+      "name": "Research Lab",
+      "purpose": "Market and competitor research. Produces briefs, never products. Cannot publish or touch money.",
+      "rect": [3, 3, 13, 9],
+      "color": "#b48cff",
+      "objects": [
+        { "id": "research-terminal", "type": "research_terminal", "at": [6, 5] },
+        { "id": "research-bench", "type": "workbench", "at": [10, 5] },
+        { "id": "research-archive", "type": "archive", "at": [12, 9] }
+      ]
+    },
+    {
+      "id": "production",
+      "name": "Production Bay",
+      "purpose": "Print-on-demand factory: original designs, listing copy, listing drafts. Publishing is gated by the operator.",
+      "rect": [40, 3, 13, 9],
+      "color": "#ff9f43",
+      "objects": [
+        { "id": "prod-design", "type": "design_station", "at": [43, 5] },
+        { "id": "prod-bench", "type": "workbench", "at": [49, 5] },
+        { "id": "prod-composer", "type": "listing_composer", "at": [45, 9] },
+        { "id": "prod-gate", "type": "publish_gate", "at": [50, 9] }
+      ]
+    },
+    {
+      "id": "output",
+      "name": "Output Studio",
+      "purpose": "Service and digital-goods work: thumbnails to a client brief, asset packs. Delivery is gated by the operator.",
+      "rect": [40, 22, 13, 9],
+      "color": "#2ee59d",
+      "objects": [
+        { "id": "out-design", "type": "design_station", "at": [43, 24] },
+        { "id": "out-bench", "type": "workbench", "at": [49, 24] },
+        { "id": "out-packager", "type": "packager", "at": [45, 28] },
+        { "id": "out-gate", "type": "delivery_gate", "at": [50, 28] }
+      ]
+    },
+    {
+      "id": "ops",
+      "name": "Ops & Ledger",
+      "purpose": "Books and telemetry: syncs connectors, reconciles revenue with provenance, reports. Cannot create products.",
+      "rect": [3, 22, 13, 9],
+      "color": "#ffd166",
+      "objects": [
+        { "id": "ops-ledger", "type": "ledger_terminal", "at": [6, 24] },
+        { "id": "ops-dock", "type": "connector_dock", "at": [10, 24] },
+        { "id": "ops-archive", "type": "archive", "at": [12, 28] }
+      ]
+    }
+  ],
+  "hallways": [
+    { "id": "h-research-bridge", "a": "research", "b": "bridge", "path": [[15, 7], [27, 7], [27, 12]] },
+    { "id": "h-bridge-production", "a": "bridge", "b": "production", "path": [[32, 14], [36, 14], [36, 7], [40, 7]] },
+    { "id": "h-bridge-output", "a": "bridge", "b": "output", "path": [[32, 18], [36, 18], [36, 26], [40, 26]] },
+    { "id": "h-bridge-ops", "a": "bridge", "b": "ops", "path": [[23, 18], [19, 18], [19, 26], [15, 26]] },
+    { "id": "h-research-production", "a": "research", "b": "production", "path": [[9, 3], [9, 1], [46, 1], [46, 3]] }
+  ],
+  "agents": [
+    {
+      "id": "orion",
+      "name": "ORION",
+      "title": "Station Commander",
+      "room": "bridge",
+      "role": "Orchestrator. Turns operator goals into delegated tasks, reviews returned work against the brief, sends it back with specific revisions or approves it for the gate. Does not produce artifacts itself.",
+      "model": "claude-opus-5-5",
+      "effort": "high",
+      "maxTurns": 14,
+      "runBudgetUsd": 1.5,
+      "palette": { "suit": "#3fd3ff", "visor": "#e6fbff" }
+    },
+    {
+      "id": "nova",
+      "name": "NOVA",
+      "title": "Market Researcher",
+      "room": "research",
+      "role": "Finds demand signals for print-on-demand products: niches, price bands, recurring themes, gaps. Reports patterns and themes, never instructions to copy a specific competitor's artwork, text, or brand.",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "maxTurns": 12,
+      "runBudgetUsd": 1.0,
+      "palette": { "suit": "#b48cff", "visor": "#f2e9ff" }
+    },
+    {
+      "id": "vega",
+      "name": "VEGA",
+      "title": "Competitor Analyst",
+      "room": "research",
+      "role": "Studies service and digital-goods markets (thumbnail gigs, asset packs): what buyers ask for, pricing, turnaround, quality bars. Outputs structured opportunity briefs.",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "maxTurns": 12,
+      "runBudgetUsd": 1.0,
+      "palette": { "suit": "#8a6cff", "visor": "#e3dcff" }
+    },
+    {
+      "id": "pixel",
+      "name": "PIXEL",
+      "title": "POD Designer",
+      "room": "production",
+      "role": "Creates original print-ready designs (typography-first SVG, or raster via the image forge when configured) from a research brief. Never reproduces a specific existing design, character, logo, or trademark.",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "maxTurns": 12,
+      "runBudgetUsd": 1.0,
+      "palette": { "suit": "#ff9f43", "visor": "#fff1e0" }
+    },
+    {
+      "id": "quill",
+      "name": "QUILL",
+      "title": "Listing Copywriter",
+      "room": "production",
+      "role": "Writes marketplace listing drafts: title, description, 13 tags, price, AI-assistance disclosure. Keeps claims truthful and within marketplace limits.",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "maxTurns": 10,
+      "runBudgetUsd": 0.75,
+      "palette": { "suit": "#ffb86b", "visor": "#fff4e6" }
+    },
+    {
+      "id": "flux",
+      "name": "FLUX",
+      "title": "Thumbnail & Asset Artist",
+      "room": "output",
+      "role": "Fulfils client briefs (YouTube thumbnails, asset packs): parses the order, drafts variants, scores them for legibility and clarity, packages the winner for operator-approved delivery.",
+      "model": "claude-opus-5-5",
+      "effort": "medium",
+      "maxTurns": 12,
+      "runBudgetUsd": 1.0,
+      "palette": { "suit": "#2ee59d", "visor": "#e0fff2" }
+    },
+    {
+      "id": "tally",
+      "name": "TALLY",
+      "title": "Ops & Ledger Officer",
+      "room": "ops",
+      "role": "Keeps the books honest: syncs connectors, reports revenue strictly by provenance, flags gaps between claims and verified data.",
+      "model": "claude-opus-5-5",
+      "effort": "low",
+      "maxTurns": 8,
+      "runBudgetUsd": 0.5,
+      "palette": { "suit": "#ffd166", "visor": "#fff8e1" }
+    }
+  ],
+  "budgets": { "stationDailyUsd": 15, "maxConcurrentRuns": 3 }
+}
