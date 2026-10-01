@@ -54,13 +54,15 @@ function publicUrl(host, port) {
  */
 export async function startStation(config) {
   mkdirSync(config.dataDir, { recursive: true });
+  // Everything that can refuse a bad setup runs before the log is opened.
   const station = readStation(config.stationPath);
-  const store = createStore({ dataDir: config.dataDir });
-  if (JSON.stringify(station) !== JSON.stringify(store.state.station)) store.append('station.loaded', { station }, 'system');
-
   const connectors = { etsy: createEtsyConnector(config.etsy) };
   const imageProvider = createImageProvider(config.image);
-  const dispatcher = createDispatcher({ store, config, station, providerFor: createProviderFor(config), imageProvider, connectors });
+  const providerFor = createProviderFor(config);
+
+  const store = createStore({ dataDir: config.dataDir });
+  if (JSON.stringify(station) !== JSON.stringify(store.state.station)) store.append('station.loaded', { station }, 'system');
+  const dispatcher = createDispatcher({ store, config, station, providerFor, imageProvider, connectors });
   const recovered = dispatcher.recover();
   const scheduler = createScheduler({ store, dispatcher });
   const meta = runtimeMeta({ config, imageProvider, connectors });
@@ -76,7 +78,11 @@ export async function startStation(config) {
   dispatcher.start();
   scheduler.start();
 
+  let stopped = false;
+  /** Stop serving and dispatching and close the log. Idempotent; runs in flight are not awaited. */
   function stop() {
+    if (stopped) return;
+    stopped = true;
     scheduler.stop();
     dispatcher.stop();
     server.close();
@@ -91,7 +97,15 @@ function banner({ config, meta, url, recovered, store }) {
     ? `${meta.providerLabel}${config.modelOverride ? ` (every agent on ${config.modelOverride})` : ' (models per agent from the station layout)'}`
     : SCRIPTED_BANNER;
   const image = meta.imageProvider ? `${meta.imageProvider.name} (${meta.imageProvider.model})` : 'none (set OUTPOST_IMAGE_PROVIDER=openai and OPENAI_API_KEY)';
-  const repaired = Object.entries(recovered).filter(([, n]) => n > 0).map(([what, n]) => `${what} ${n}`);
+  const labels = {
+    approvalsExpired: 'approvals expired',
+    runsInterrupted: 'runs marked interrupted',
+    tasksRequeued: 'tasks re-queued',
+    tasksFailed: 'tasks failed (out of attempts)',
+    agentsReset: 'agents reset to idle',
+    reviewsCreated: 'missing reviews created',
+  };
+  const repaired = Object.entries(recovered).filter(([, n]) => n > 0).map(([key, n]) => `${n} ${labels[key]}`);
   return [
     `OUTPOST ${meta.version} · ${store.state.station.name} online`,
     `  URL             ${url}`,

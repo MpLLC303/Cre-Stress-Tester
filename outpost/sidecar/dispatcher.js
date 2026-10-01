@@ -73,11 +73,11 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
     if (!agentById(assignee)) throw new Error(`unknown agent "${assignee}"`);
     if (typeof title !== 'string' || !title.trim()) throw new Error('task title must be a non-empty string');
     if (typeof brief !== 'string') throw new Error('task brief must be a string');
-    const missingInput = inputs.find((id) => !state.artifacts[id]);
+    const missingInput = inputs.find((id) => !Object.hasOwn(state.artifacts, id));
     if (missingInput) throw new Error(`unknown artifact ${missingInput}`);
-    const missingDep = dependsOn.find((id) => !state.tasks[id]);
+    const missingDep = dependsOn.find((id) => !Object.hasOwn(state.tasks, id));
     if (missingDep) throw new Error(`unknown dependency task ${missingDep}`);
-    if (parentTaskId && !state.tasks[parentTaskId]) throw new Error(`unknown parent task ${parentTaskId}`);
+    if (parentTaskId && !Object.hasOwn(state.tasks, parentTaskId)) throw new Error(`unknown parent task ${parentTaskId}`);
     const taskId = newId('task');
     store.append('task.created', {
       taskId,
@@ -235,18 +235,15 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
   function waitForApproval(approvalId, signal) {
     return new Promise((resolve, reject) => {
       if (signal.aborted) return reject(signal.reason);
-      const onAbort = () => {
+      const settle = (fn) => (value) => {
         waiters.delete(approvalId);
-        reject(signal.reason);
+        signal.removeEventListener('abort', onAbort);
+        fn(value);
       };
+      const waiter = { resolve: settle(resolve), reject: settle(reject) };
+      const onAbort = () => waiter.reject(signal.reason);
       signal.addEventListener('abort', onAbort, { once: true });
-      waiters.set(approvalId, {
-        resolve: (value) => {
-          signal.removeEventListener('abort', onAbort);
-          resolve(value);
-        },
-        reject,
-      });
+      waiters.set(approvalId, waiter);
     });
   }
 
@@ -260,7 +257,6 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
   function resolveApproval(approvalId, decision, note) {
     const waiter = waiters.get(approvalId);
     if (!waiter || state.approvals[approvalId]?.status !== 'pending' || !['granted', 'denied'].includes(decision)) return false;
-    waiters.delete(approvalId);
     store.append('approval.resolved', { approvalId, decision, note: note || undefined }, 'operator');
     waiter.resolve({ decision, note });
     return true;
@@ -423,6 +419,8 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
   function recover() {
     const liveRuns = new Set([...active.values()].map((e) => e.runId));
     const liveTasks = new Set([...active.values()].map((e) => e.taskId));
+    const reviewCount = () => state.taskOrder.filter((id) => state.tasks[id].kind === 'review').length;
+    const reviewsBefore = reviewCount();
     const summary = { approvalsExpired: 0, runsInterrupted: 0, tasksRequeued: 0, tasksFailed: 0, agentsReset: 0, reviewsCreated: 0 };
 
     for (const ap of Object.values(state.approvals)) {
@@ -455,8 +453,9 @@ export function createDispatcher({ store, config, station, providerFor, imagePro
       store.append('agent.status', { agentId: agent.id, status: 'idle', detail: 'reset after restart' }, 'system');
       summary.agentsReset += 1;
     }
-    const parents = unique(state.taskOrder.map((id) => state.tasks[id].parentTaskId).filter(Boolean));
-    for (const parentId of parents) if (maybeCreateReview(parentId)) summary.reviewsCreated += 1;
+    // Failing a task above may already have produced its parent's review; this catches the rest.
+    for (const parentId of unique(state.taskOrder.map((id) => state.tasks[id].parentTaskId).filter(Boolean))) maybeCreateReview(parentId);
+    summary.reviewsCreated = reviewCount() - reviewsBefore;
     return summary;
   }
 

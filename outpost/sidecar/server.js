@@ -179,7 +179,7 @@ function sseWriter(res) {
     blocked = false;
     while (queue.length && !blocked) {
       const chunk = queue.shift();
-      queuedBytes -= chunk.length;
+      queuedBytes -= Buffer.byteLength(chunk);
       blocked = !res.write(chunk);
     }
   });
@@ -190,7 +190,7 @@ function sseWriter(res) {
       return;
     }
     queue.push(chunk);
-    queuedBytes += chunk.length;
+    queuedBytes += Buffer.byteLength(chunk);
     if (queuedBytes > MAX_SSE_QUEUE_BYTES) res.destroy();
   };
 }
@@ -207,6 +207,9 @@ function streamEvents(req, res, store, url) {
     'x-content-type-options': 'nosniff',
   });
   const write = sseWriter(res);
+  // Flush headers now: with nothing to replay, the browser would otherwise sit in
+  // "connecting" until the first ping.
+  write(': open\n\n');
   // Replay and subscribe in the same synchronous step, so no event falls in between.
   for (const e of store.events(since)) write(sseFrame(e));
   const unsubscribe = store.subscribe((e) => write(sseFrame(e)));
@@ -384,7 +387,12 @@ export function createServer({ store, dispatcher, scheduler, config, meta, conne
 
   async function handle(req, res) {
     if (!hostAllowed(req.headers.host, allowHosts)) throw new HttpError(421, 'unrecognised Host header (DNS-rebinding guard); add it to OUTPOST_ALLOW_HOSTS to allow it');
-    const url = new URL(req.url, 'http://outpost.local');
+    let url;
+    try {
+      url = new URL(req.url, 'http://outpost.local');
+    } catch {
+      throw new HttpError(400, 'malformed request URL');
+    }
     if (req.method === 'POST') return handlePost(req, res, url.pathname);
     if (req.method === 'GET' || req.method === 'HEAD') return handleGet(req, res, url);
     throw new HttpError(405, `method ${req.method} not allowed`);
@@ -392,14 +400,14 @@ export function createServer({ store, dispatcher, scheduler, config, meta, conne
 
   return createHttpServer((req, res) => {
     handle(req, res).catch((err) => {
-      const status = err instanceof HttpError ? err.status : 500;
-      if (status === 500 && !(err instanceof HttpError)) console.error('outpost server:', err);
+      const expected = err instanceof HttpError;
+      if (!expected) console.error('outpost server:', err);
       if (res.headersSent) {
         res.destroy();
         return;
       }
-      if (status === 413) res.setHeader('connection', 'close');
-      sendJson(res, status, { error: status === 500 && !(err instanceof HttpError) ? 'internal error' : err.message });
+      if (expected && err.status === 413) res.setHeader('connection', 'close'); // the rest of the body is not read
+      sendJson(res, expected ? err.status : 500, { error: expected ? err.message : 'internal error' });
     });
   });
 }

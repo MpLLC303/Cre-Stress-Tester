@@ -27,15 +27,8 @@ function configFor(dataDir) {
 
 async function boot(t, dataDir = tmp()) {
   const station = await startStation(configFor(dataDir));
-  const base = station.url.replace(/\/$/, '');
-  let stopped = false;
-  const stop = () => {
-    if (stopped) return;
-    stopped = true;
-    station.stop();
-  };
-  t.after(stop);
-  return { ...station, base, dataDir, stop };
+  t.after(station.stop);
+  return { ...station, base: station.url.replace(/\/$/, ''), dataDir };
 }
 
 /** The UI's view of the log: GET /api/events?since=N, parsed frame by frame. */
@@ -264,4 +257,35 @@ test('restart mid-approval: the request expires, the run is interrupted, the tas
   assert.deepEqual(delivered, ['delivery']);
   assert.equal(store.state.tasks[taskId].runIds.length, 2);
   assert.ok(store.events(seenBefore).every((e) => e.type !== 'run.started' || e.payload.provider === 'scripted'));
+});
+
+test('boot: station.loaded is logged only when the layout changed; an invalid layout is refused before the log opens', { timeout: 30_000 }, async (t) => {
+  const dataDir = tmp();
+  const loads = () => fs.readFileSync(path.join(dataDir, 'events.ndjson'), 'utf8').split('\n').filter((l) => l.includes('"type":"station.loaded"')).length;
+  (await boot(t, dataDir)).stop();
+  (await boot(t, dataDir)).stop();
+  assert.equal(loads(), 1, 'an unchanged layout is not re-logged');
+
+  const changed = structuredClone(STATION);
+  changed.budgets.stationDailyUsd = 5;
+  const stationPath = path.join(tmp(), 'station.json');
+  fs.writeFileSync(stationPath, JSON.stringify(changed));
+  const station = await startStation({ ...configFor(dataDir), stationPath });
+  t.after(station.stop);
+  assert.equal(station.store.state.station.budgets.stationDailyUsd, 5);
+  station.stop();
+  assert.equal(loads(), 2);
+
+  const broken = structuredClone(STATION);
+  broken.agents[0].room = 'nowhere';
+  broken.hallways.push({ id: 'h-bad', a: 'bridge', b: 'void', path: [] });
+  fs.writeFileSync(stationPath, JSON.stringify(broken));
+  const freshDir = tmp();
+  await assert.rejects(startStation({ ...configFor(freshDir), stationPath }), (err) => {
+    assert.match(err.message, /invalid station layout/);
+    assert.match(err.message, /- agent orion assigned to unknown room nowhere/);
+    assert.match(err.message, /- hallway h-bad links unknown room/);
+    return true;
+  });
+  assert.equal(fs.existsSync(path.join(freshDir, 'events.ndjson')), false, 'nothing was logged');
 });

@@ -77,7 +77,8 @@ function openStream(port, query, headers = {}) {
         buf += chunk.toString('utf8');
         let i;
         while ((i = buf.indexOf('\n\n')) !== -1) {
-          frames.push(buf.slice(0, i));
+          const frame = buf.slice(0, i);
+          if (!frame.startsWith(':')) frames.push(frame); // comments (': open', ': ping') carry no events
           buf = buf.slice(i + 2);
         }
       });
@@ -241,6 +242,31 @@ test('SSE: replays seq > since, then streams live frames; the subscription ends 
   resumed.close();
   assert.equal((await get(port, '/api/events?since=-1')).status, 400);
   assert.equal((await get(port, '/api/events?since=abc')).status, 400);
+});
+
+test('SSE backpressure: a client that stops reading is dropped, not buffered without bound', async (t) => {
+  const { port, store } = await start(t);
+  let subscribers = 0;
+  const subscribe = store.subscribe;
+  store.subscribe = (fn) => {
+    subscribers += 1;
+    const off = subscribe(fn);
+    return () => {
+      subscribers -= 1;
+      off();
+    };
+  };
+  const stream = openStream(port, `?since=${store.state.seq}`);
+  const res = await stream.ready;
+  res.pause(); // stop reading: the socket fills and the server's writes start returning false
+  const filler = 'x'.repeat(100 * 1024);
+  for (let i = 0; i < 200 && subscribers > 0; i += 1) {
+    store.append('log', { level: 'info', message: `${i} ${filler}` });
+    await new Promise((r) => setImmediate(r));
+  }
+  await waitFor(() => subscribers === 0, 'the stalled client to be dropped');
+  assert.equal((await get(port, '/api/snapshot')).status, 200, 'the server keeps serving');
+  stream.close();
 });
 
 // ---- artifacts ---------------------------------------------------------------------------
