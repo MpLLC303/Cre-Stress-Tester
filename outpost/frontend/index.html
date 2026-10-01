@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="OUTPOST: a pixel-art projection of a local multi-agent runtime's event log.">
+  <title>OUTPOST</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/frontend/style.css">
+</head>
+<body>
+  <div id="shell">
+    <main id="monitor" aria-label="Station monitor">
+      <div class="bezel">
+        <canvas id="world" width="896" height="528" aria-label="Station map: rooms, crew and handoff lanes, drawn from the event log. Every room, agent and object is also reachable from the terminal panel."></canvas>
+      </div>
+    </main>
+    <div id="ui"></div>
+  </div>
+  <div id="boot" role="status" aria-live="polite">
+    <div class="boot-box">
+      <div class="boot-title">OUTPOST</div>
+      <div class="boot-line" id="boot-line">LINKING TO STATION &hellip; waiting for /api/snapshot</div>
+    </div>
+  </div>
+  <script type="module" src="/frontend/main.js"></script>
+</body>
+</html>
